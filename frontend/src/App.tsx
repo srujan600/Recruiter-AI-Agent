@@ -35,7 +35,7 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex flex-col font-sans">
+    <div className="min-h-screen bg-[#f4f6fc] text-[#0b1c30] flex flex-col font-sans antialiased selection:bg-[#6cf8bb] selection:text-[#002113]">
       <Sidebar
         currentTab={currentTab}
         onTabChange={(tab) => setCurrentTab(tab)}
@@ -97,12 +97,25 @@ export function App() {
 
         {currentTab === 'settings' && (
           <div className="p-8 max-w-[1440px] mx-auto space-y-6">
-            <div className="bg-white p-6 rounded-2xl border border-[#d3e4fe]">
-              <h1 className="text-xl font-black text-[#0b1c30]">Organization & AI Settings</h1>
-              <p className="text-xs text-[#45464d] mt-1">Configure recruiter permissions, LLM model thresholds, and ATS parser integrations.</p>
-              <div className="mt-4 p-4 bg-[#f8f9ff] rounded-xl border border-[#d3e4fe] text-xs">
-                <p className="font-bold text-[#006c49]">Connected AI Model: Gemini 2.5 Pro / Flash</p>
-                <p className="text-[#45464d] mt-1">Role Permission: {activeRole} Access Level</p>
+            <div className="card-3d p-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#006c49] text-white flex items-center justify-center shadow-md">
+                  <span className="material-symbols-outlined">settings</span>
+                </div>
+                <div>
+                  <h1 className="text-xl font-black text-[#0b1c30]">Organization & AI Settings</h1>
+                  <p className="text-xs text-[#45464d] mt-0.5">Configure recruiter permissions, LLM model thresholds, and ATS parser integrations.</p>
+                </div>
+              </div>
+              <div className="mt-6 p-4 inset-depth rounded-xl text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#006c49] flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm">auto_awesome</span>
+                    Connected AI Engine: Gemini 2.5 Pro / Flash
+                  </span>
+                  <span className="px-2.5 py-0.5 bg-[#6cf8bb] text-[#002113] rounded-full font-black text-[10px]">Active</span>
+                </div>
+                <p className="text-[#45464d]">Role Access Permission: <strong className="text-[#0b1c30]">{activeRole} Level</strong></p>
               </div>
             </div>
           </div>

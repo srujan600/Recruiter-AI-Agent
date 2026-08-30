@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { sendAgentQuery } from '../../services/api';
 import type { AgentChatMessage } from '../../types';
+import { SpatialAIOrb } from '../common/SpatialAIOrb';
 
 interface AIRecruiterDrawerProps {
   isOpen: boolean;
@@ -69,58 +70,65 @@ export const AIRecruiterDrawer: React.FC<AIRecruiterDrawerProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+      {/* Dim Backdrop Blur Overlay */}
       <div className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg bg-white h-full shadow-2xl flex flex-col z-10 border-l border-[#d3e4fe]">
-        <div className="p-4 border-b border-[#eff4ff] bg-[#131b2e] text-white flex items-center justify-between">
+      {/* Floating Spatial Drawer (Level 4 Depth) */}
+      <div className="relative w-full max-w-lg bg-white/95 backdrop-blur-xl h-full shadow-2xl flex flex-col z-10 border-l border-[#d3e4fe] depth-l4">
+        {/* Spatial Header */}
+        <div className="p-4 border-b border-[#eff4ff] bg-gradient-to-r from-[#131b2e] via-[#1b263e] to-[#0b1c30] text-white flex items-center justify-between shadow-md">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#006c49] flex items-center justify-center text-white shadow-xs">
-              <span className="material-symbols-outlined text-xl">auto_awesome</span>
-            </div>
+            <SpatialAIOrb size="sm" active={true} />
             <div>
-              <h2 className="text-sm font-extrabold tracking-tight">AI Recruiter Assistant</h2>
-              <span className="text-[10px] text-[#6cf8bb] font-bold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#6cf8bb] animate-pulse"></span>
+              <h2 className="text-sm font-black tracking-tight text-white">AI Recruiter Assistant</h2>
+              <span className="text-[10px] text-[#6cf8bb] font-extrabold flex items-center gap-1.5 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#6cf8bb] animate-ping" />
                 Active Agent Session
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="text-[#c6c6cd] hover:text-white text-lg p-1">
+          <button
+            onClick={onClose}
+            className="text-[#c6c6cd] hover:text-white text-lg p-1.5 rounded-xl hover:bg-white/10 transition-colors"
+          >
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
 
+        {/* Quick Suggestion Pills */}
         <div className="p-3 bg-[#f8f9ff] border-b border-[#d3e4fe] flex items-center gap-2 overflow-x-auto custom-scrollbar">
           {[
-            'Find best Python candidates',
-            'Shortlist Alexander Chen',
-            'Schedule interview',
-            'Analyze pipeline bottlenecks'
+            'Find top Python candidates',
+            'Analyze candidate Alexander Chen',
+            'Compare top candidates',
+            'Schedule technical interviews',
+            'Show hiring bottlenecks'
           ].map((prompt) => (
             <button
               key={prompt}
               onClick={() => handleSend(prompt)}
-              className="px-2.5 py-1 bg-white border border-[#c6c6cd] text-[#006c49] hover:bg-[#eff4ff] text-[11px] font-bold rounded-lg shrink-0 transition-colors"
+              className="btn-3d btn-3d-glass px-3 py-1.5 text-[11px] font-extrabold rounded-xl shrink-0 text-[#006c49]"
             >
               {prompt}
             </button>
           ))}
         </div>
 
-        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4 bg-[#f8f9ff]">
+        {/* Conversation Stream */}
+        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4 bg-spatial-grid">
           {messages.map((msg) => (
             <div
               key={msg.id}
               className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
             >
               <div
-                className={`max-w-[85%] p-3.5 rounded-2xl text-xs space-y-2 ${
+                className={`max-w-[88%] p-4 rounded-2xl text-xs space-y-2 ${
                   msg.sender === 'user'
-                    ? 'bg-[#006c49] text-white rounded-br-none shadow-2xs font-medium'
-                    : 'bg-white text-[#0b1c30] border border-[#d3e4fe] rounded-bl-none shadow-2xs'
+                    ? 'bg-gradient-to-r from-[#007c54] to-[#006c49] text-white rounded-br-none shadow-md font-semibold'
+                    : 'card-3d bg-white text-[#0b1c30] rounded-bl-none shadow-sm'
                 }`}
               >
-                <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
+                <div className="whitespace-pre-wrap leading-relaxed font-medium">{msg.text}</div>
 
                 {msg.action_type === 'shortlist' && (
                   <div className="pt-2 border-t border-[#eff4ff] mt-2">
@@ -129,37 +137,39 @@ export const AIRecruiterDrawer: React.FC<AIRecruiterDrawerProps> = ({
                         onClose();
                         onNavigate('pipeline');
                       }}
-                      className="w-full py-1.5 bg-[#131b2e] text-white font-bold text-[11px] rounded-lg hover:bg-[#213145] transition-colors"
+                      className="w-full btn-3d btn-3d-navy py-2 text-white font-extrabold text-[11px] rounded-xl flex items-center justify-center gap-1"
                     >
-                      Open Pipeline Board →
+                      <span>Open Pipeline Board</span>
+                      <span className="material-symbols-outlined text-xs">arrow_forward</span>
                     </button>
                   </div>
                 )}
               </div>
-              <span className="text-[10px] text-[#76777d] mt-1 px-1">{msg.timestamp}</span>
+              <span className="text-[10px] text-[#76777d] mt-1 px-1.5 font-medium">{msg.timestamp}</span>
             </div>
           ))}
 
           {isTyping && (
-            <div className="flex items-center gap-2 text-xs text-[#006c49] font-bold bg-white p-3 rounded-xl border border-[#d3e4fe] w-fit">
-              <span className="material-symbols-outlined animate-spin text-sm">sync</span>
+            <div className="flex items-center gap-2.5 text-xs text-[#006c49] font-extrabold card-3d p-3.5 w-fit shadow-xs">
+              <span className="material-symbols-outlined animate-spin text-base">sync</span>
               <span>AI Recruiter Agent is evaluating...</span>
             </div>
           )}
         </div>
 
-        <div className="p-4 border-t border-[#d3e4fe] bg-white flex items-center gap-2">
+        {/* Input Bar */}
+        <div className="p-4 border-t border-[#d3e4fe] bg-white flex items-center gap-2.5">
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask AI agent to shortlist, schedule, search..."
-            className="flex-1 bg-[#f8f9ff] border border-[#c6c6cd] rounded-xl px-4 py-2.5 text-xs text-[#0b1c30] focus:outline-none focus:border-[#006c49]"
+            placeholder="Ask AI agent to shortlist, schedule, compare candidates..."
+            className="flex-1 bg-[#f4f7fc] border border-[#c6c6cd] rounded-xl px-4 py-2.5 text-xs text-[#0b1c30] focus:outline-none focus:border-[#006c49] inset-depth font-medium"
           />
           <button
             onClick={() => handleSend()}
-            className="w-10 h-10 rounded-xl bg-[#006c49] hover:bg-[#005236] text-white flex items-center justify-center shadow-2xs transition-colors shrink-0"
+            className="btn-3d btn-3d-emerald w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
           >
             <span className="material-symbols-outlined text-lg">send</span>
           </button>
