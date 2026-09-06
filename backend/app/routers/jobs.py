@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from ..database import get_db
 from ..models import Job, Application
@@ -10,11 +11,16 @@ router = APIRouter(prefix="/api/v1/jobs", tags=["Jobs"])
 @router.get("", response_model=List[JobResponse])
 def get_jobs(db: Session = Depends(get_db)):
     jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+    # Batch query all applicant counts in 1 single query instead of N queries
+    app_counts = dict(
+        db.query(Application.job_id, func.count(Application.id))
+        .group_by(Application.job_id)
+        .all()
+    )
     res = []
     for j in jobs:
-        count = db.query(Application).filter(Application.job_id == j.id).count()
         j_dict = JobResponse.from_orm(j)
-        j_dict.applicant_count = count
+        j_dict.applicant_count = app_counts.get(j.id, 0)
         res.append(j_dict)
     return res
 
@@ -23,7 +29,7 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    count = db.query(Application).filter(Application.job_id == job_id).count()
+    count = db.query(func.count(Application.id)).filter(Application.job_id == job_id).scalar() or 0
     j_dict = JobResponse.from_orm(job)
     j_dict.applicant_count = count
     return j_dict

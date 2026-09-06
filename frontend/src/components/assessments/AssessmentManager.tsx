@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { fetchAssessments, assignAssessment, fetchPipeline } from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { fetchAssessments, assignAssessment, fetchPipeline, apiCache } from '../../services/api';
 import type { Assessment, Application } from '../../types';
+import { AssessmentsSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
-export const AssessmentManager: React.FC = () => {
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
+export const AssessmentManager: React.FC = React.memo(() => {
+  const cachedAssessments = apiCache.getCached<Assessment[]>('assessments');
+  const cachedApps = apiCache.getCached<Application[]>('pipeline');
+
+  const [assessments, setAssessments] = useState<Assessment[]>(cachedAssessments || []);
+  const [applications, setApplications] = useState<Application[]>(cachedApps || []);
+  const [loading, setLoading] = useState<boolean>(!cachedAssessments);
+  const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -15,9 +20,10 @@ export const AssessmentManager: React.FC = () => {
   const [type, setType] = useState('technical');
   const [maxScore, setMaxScore] = useState(100);
 
-  const loadData = () => {
-    setLoading(true);
-    Promise.all([fetchAssessments(), fetchPipeline()])
+  const loadData = useCallback((forceRefresh = false) => {
+    if (!cachedAssessments || forceRefresh) setLoading(true);
+    setError(null);
+    Promise.all([fetchAssessments(forceRefresh), fetchPipeline(undefined, forceRefresh)])
       .then(([assRes, appRes]) => {
         setAssessments(assRes);
         setApplications(appRes);
@@ -26,13 +32,14 @@ export const AssessmentManager: React.FC = () => {
       })
       .catch((err) => {
         console.error('Assessments load error:', err);
+        setError('Failed to load candidate assessments.');
         setLoading(false);
       });
-  };
+  }, [cachedAssessments]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,8 +83,10 @@ export const AssessmentManager: React.FC = () => {
         </button>
       </div>
 
-      {loading ? (
-        <div className="p-12 text-center text-xs text-[#006c49] font-bold">Loading Assessments...</div>
+      {error && assessments.length === 0 ? (
+        <ErrorRetryCard message={error} onRetry={() => loadData(true)} />
+      ) : loading && assessments.length === 0 ? (
+        <AssessmentsSkeleton />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {assessments.map((ass) => (
@@ -208,5 +217,8 @@ export const AssessmentManager: React.FC = () => {
       )}
     </div>
   );
-};
+});
+
+AssessmentManager.displayName = 'AssessmentManager';
+
 

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { compareCandidateMatch, fetchCandidates, fetchJobs } from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { compareCandidateMatch, fetchCandidates, fetchJobs, updateCandidateStage, apiCache } from '../../services/api';
 import type { Candidate, Job } from '../../types';
 import { AIMatchScoreRing3D } from '../common/AIMatchScoreRing3D';
+import { CandidateProfileSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
 interface AICandidateMatcherProps {
   initialCandidateId?: number;
@@ -9,50 +10,77 @@ interface AICandidateMatcherProps {
   onNavigate: (tab: string, candidateId?: number) => void;
 }
 
-export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = ({
+export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = React.memo(({
   initialCandidateId,
   initialJobId,
   onNavigate
 }) => {
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const cachedCandidates = apiCache.getCached<Candidate[]>('candidates') || [];
+  const cachedJobs = apiCache.getCached<Job[]>('jobs') || [];
+
+  const [candidates, setCandidates] = useState<Candidate[]>(cachedCandidates);
+  const [jobs, setJobs] = useState<Job[]>(cachedJobs);
   const [selectedCandidateId, setSelectedCandidateId] = useState<number>(initialCandidateId || 1);
   const [selectedJobId, setSelectedJobId] = useState<number>(initialJobId || 1);
-  const [matchData, setMatchData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
+  const cacheKey = `matcher_${selectedCandidateId}_${selectedJobId}`;
+  const cachedMatch = apiCache.getCached<any>(cacheKey);
+
+  const [matchData, setMatchData] = useState<any>(cachedMatch || null);
+  const [loading, setLoading] = useState<boolean>(!cachedMatch);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load initial dropdowns if not in cache
   useEffect(() => {
-    Promise.all([fetchCandidates(), fetchJobs()])
-      .then(([candRes, jobsRes]) => {
-        setCandidates(candRes);
-        setJobs(jobsRes);
-        if (!initialCandidateId && candRes.length > 0) setSelectedCandidateId(candRes[0].id);
-        if (!initialJobId && jobsRes.length > 0) setSelectedJobId(jobsRes[0].id);
-      })
-      .catch((err) => console.error('Matcher candidates/jobs load error:', err));
-  }, []);
+    if (candidates.length === 0 || jobs.length === 0) {
+      Promise.all([fetchCandidates(), fetchJobs()])
+        .then(([candRes, jobsRes]) => {
+          setCandidates(candRes);
+          setJobs(jobsRes);
+          if (!initialCandidateId && candRes.length > 0) setSelectedCandidateId(candRes[0].id);
+          if (!initialJobId && jobsRes.length > 0) setSelectedJobId(jobsRes[0].id);
+        })
+        .catch((err) => console.error('Matcher candidates/jobs load error:', err));
+    }
+  }, [candidates.length, jobs.length, initialCandidateId, initialJobId]);
 
-  const runComparison = () => {
-    setLoading(true);
-    compareCandidateMatch(selectedCandidateId, selectedJobId)
+  const runComparison = useCallback((forceRefresh = false) => {
+    const currentCached = apiCache.getCached<any>(`matcher_${selectedCandidateId}_${selectedJobId}`);
+    if (!currentCached || forceRefresh) {
+      setLoading(true);
+    }
+    setError(null);
+    compareCandidateMatch(selectedCandidateId, selectedJobId, forceRefresh)
       .then((res) => {
         setMatchData(res);
         setLoading(false);
       })
       .catch((err) => {
         console.error('Comparison error:', err);
+        setError('Failed to evaluate candidate match.');
         setLoading(false);
       });
-  };
+  }, [selectedCandidateId, selectedJobId]);
 
   useEffect(() => {
     if (selectedCandidateId && selectedJobId) {
       runComparison();
     }
-  }, [selectedCandidateId, selectedJobId]);
+  }, [selectedCandidateId, selectedJobId, runComparison]);
+
+  const handleShortlist = async () => {
+    if (!matchData?.candidate) return;
+    try {
+      await updateCandidateStage(matchData.candidate.id, 'Shortlisted');
+      onNavigate('pipeline');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to shortlist candidate.');
+    }
+  };
 
   return (
-    <div className="p-8 space-y-6 max-w-[1440px] mx-auto">
+    <div className="p-8 space-y-6 max-w-[1440px] mx-auto animate-in fade-in duration-200">
       {/* Matcher Header Controls */}
       <div className="card-3d p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -93,22 +121,19 @@ export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = ({
           </div>
 
           <button
-            onClick={runComparison}
-            className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl"
+            onClick={() => runComparison(true)}
+            className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl cursor-pointer"
           >
             Re-Analyze
           </button>
         </div>
       </div>
 
-      {loading || !matchData ? (
-        <div className="p-12 flex items-center justify-center min-h-[400px]">
-          <div className="flex items-center gap-3 text-[#006c49]">
-            <span className="material-symbols-outlined animate-spin text-3xl">sync</span>
-            <span className="font-bold text-sm">Evaluating AI Candidate Match Matrix...</span>
-          </div>
-        </div>
-      ) : (
+      {error && !matchData ? (
+        <ErrorRetryCard message={error} onRetry={() => runComparison(true)} />
+      ) : loading && !matchData ? (
+        <CandidateProfileSkeleton />
+      ) : matchData ? (
         <>
           {/* 3D Circular Match Score Component */}
           <AIMatchScoreRing3D score={matchData.overall_match_score} />
@@ -125,21 +150,13 @@ export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = ({
             <div className="flex items-center gap-3">
               <button
                 onClick={() => onNavigate('profile', matchData.candidate.id)}
-                className="btn-3d btn-3d-glass px-4 py-2.5 rounded-xl text-xs font-bold"
+                className="btn-3d btn-3d-glass px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer"
               >
                 View Full Profile
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    const { updateCandidateStage } = await import('../../services/api');
-                    await updateCandidateStage(matchData.candidate.id, 'Shortlisted');
-                    onNavigate('pipeline');
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-                className="btn-3d btn-3d-emerald px-4 py-2.5 rounded-xl text-xs font-bold"
+                onClick={handleShortlist}
+                className="btn-3d btn-3d-emerald px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer"
               >
                 Shortlist Candidate →
               </button>
@@ -169,7 +186,7 @@ export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#eff4ff]">
-                      {matchData.requirement_breakdown_table.map((row: any, idx: number) => (
+                      {matchData.requirement_breakdown_table?.map((row: any, idx: number) => (
                         <tr key={idx} className="hover:bg-[#f8f9ff] transition-colors">
                           <td className="p-3.5 font-bold text-[#0b1c30]">{row.requirement}</td>
                           <td className="p-3.5 text-[#45464d] font-medium">{row.candidate_value}</td>
@@ -205,10 +222,10 @@ export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = ({
                   <div className="p-4 bg-[#f8f9ff] rounded-xl border border-[#d3e4fe] inset-depth space-y-1">
                     <span className="text-[#45464d] block font-bold text-[11px]">Salary Expectation vs Budget</span>
                     <span className="text-base font-black text-[#0b1c30] block">
-                      ${matchData.logistics.expected_salary.toLocaleString()} / yr
+                      ${matchData.logistics.expected_salary?.toLocaleString()} / yr
                     </span>
                     <span className="text-[10px] text-[#006c49] font-extrabold block">
-                      Within budget max of ${matchData.logistics.budget_max.toLocaleString()}
+                      Within budget max of ${matchData.logistics.budget_max?.toLocaleString()}
                     </span>
                   </div>
 
@@ -233,7 +250,9 @@ export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = ({
             </div>
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
-};
+});
+
+AICandidateMatcher.displayName = 'AICandidateMatcher';

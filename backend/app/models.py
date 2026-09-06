@@ -38,7 +38,7 @@ class Job(Base):
     min_salary = Column(Integer, default=120000)
     max_salary = Column(Integer, default=160000)
     notice_period_days = Column(Integer, default=30)
-    status = Column(String(50), default='active') # active, draft, closed, archived
+    status = Column(String(50), default='active', index=True) # active, draft, closed, archived
     description = Column(Text, nullable=True)
     required_skills = Column(JSON, default=list)
     preferred_skills = Column(JSON, default=list)
@@ -53,7 +53,7 @@ class Candidate(Base):
     __tablename__ = 'candidates'
 
     id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String(255), nullable=False)
+    full_name = Column(String(255), nullable=False, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     phone = Column(String(50), nullable=True)
     location = Column(String(100), default='San Francisco, CA')
@@ -74,7 +74,7 @@ class Resume(Base):
     __tablename__ = 'resumes'
 
     id = Column(Integer, primary_key=True, index=True)
-    candidate_id = Column(Integer, ForeignKey('candidates.id'), nullable=False)
+    candidate_id = Column(Integer, ForeignKey('candidates.id'), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_type = Column(String(50), default='pdf')
@@ -90,9 +90,9 @@ class Application(Base):
     __tablename__ = 'applications'
 
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey('jobs.id'), nullable=False)
-    candidate_id = Column(Integer, ForeignKey('candidates.id'), nullable=False)
-    stage = Column(String(50), default='Applied') # Applied, AI Screening, Shortlisted, Assessment, Interview, Offer, Hired, Rejected
+    job_id = Column(Integer, ForeignKey('jobs.id'), nullable=False, index=True)
+    candidate_id = Column(Integer, ForeignKey('candidates.id'), nullable=False, index=True)
+    stage = Column(String(50), default='Applied', index=True) # Applied, AI Screening, Shortlisted, Assessment, Interview, Offer, Hired, Rejected
     match_score = Column(Integer, default=85)
     ats_score = Column(Integer, default=88)
     applied_at = Column(DateTime, default=datetime.utcnow)
@@ -108,7 +108,7 @@ class ScreeningResult(Base):
     __tablename__ = 'screening_results'
 
     id = Column(Integer, primary_key=True, index=True)
-    application_id = Column(Integer, ForeignKey('applications.id'), nullable=False)
+    application_id = Column(Integer, ForeignKey('applications.id'), nullable=False, index=True)
     overall_match_score = Column(Integer, default=90)
     ats_score = Column(Integer, default=92)
     skill_match_score = Column(Integer, default=95)
@@ -126,10 +126,10 @@ class Assessment(Base):
     __tablename__ = 'assessments'
 
     id = Column(Integer, primary_key=True, index=True)
-    application_id = Column(Integer, ForeignKey('applications.id'), nullable=False)
+    application_id = Column(Integer, ForeignKey('applications.id'), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     assessment_type = Column(String(50), default='technical') # technical, behavioral
-    status = Column(String(50), default='pending') # pending, in_progress, completed
+    status = Column(String(50), default='pending', index=True) # pending, in_progress, completed
     score = Column(Integer, nullable=True)
     max_score = Column(Integer, default=100)
     completed_at = Column(DateTime, nullable=True)
@@ -142,14 +142,14 @@ class Interview(Base):
     __tablename__ = 'interviews'
 
     id = Column(Integer, primary_key=True, index=True)
-    application_id = Column(Integer, ForeignKey('applications.id'), nullable=False)
+    application_id = Column(Integer, ForeignKey('applications.id'), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     interview_type = Column(String(50), default='Technical Interview')
     interviewer_name = Column(String(255), default='Sarah Jenkins')
     scheduled_at = Column(DateTime, nullable=False)
     duration_minutes = Column(Integer, default=45)
     meeting_link = Column(String(500), nullable=True)
-    status = Column(String(50), default='scheduled') # scheduled, completed, cancelled, rescheduled
+    status = Column(String(50), default='scheduled', index=True) # scheduled, completed, cancelled, rescheduled
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -159,7 +159,7 @@ class CandidateNote(Base):
     __tablename__ = 'candidate_notes'
 
     id = Column(Integer, primary_key=True, index=True)
-    candidate_id = Column(Integer, ForeignKey('candidates.id'), nullable=False)
+    candidate_id = Column(Integer, ForeignKey('candidates.id'), nullable=False, index=True)
     author_name = Column(String(255), default='Sarah Jenkins')
     note_text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -174,7 +174,7 @@ class Notification(Base):
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
     notification_type = Column(String(50), default='info') # info, warning, success
-    is_read = Column(Boolean, default=False)
+    is_read = Column(Boolean, default=False, index=True)
     action_link = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

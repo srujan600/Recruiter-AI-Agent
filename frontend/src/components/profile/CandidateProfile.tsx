@@ -1,7 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { fetchCandidateDetail, fetchScreeningResult } from '../../services/api';
+import React, { useEffect, useState, useCallback, Suspense } from 'react';
+import { fetchCandidateDetail, fetchScreeningResult, updateCandidateStage, apiCache } from '../../services/api';
 import type { Candidate, ScreeningResult } from '../../types';
-import { CandidateSpatialNodePreview } from '../candidate/CandidateSpatialNodePreview';
+import { CandidateProfileSkeleton, ErrorRetryCard } from '../common/Skeletons';
+
+// Lazy-load Three.js & Fiber 3D spatial node only when spatial tab is selected
+const CandidateSpatialNodePreview = React.lazy(
+  () => import('../candidate/CandidateSpatialNodePreview')
+);
 
 interface CandidateProfileProps {
   candidateId: number;
@@ -9,19 +14,27 @@ interface CandidateProfileProps {
   onOpenMatcher: (candidateId: number, jobId: number) => void;
 }
 
-export const CandidateProfile: React.FC<CandidateProfileProps> = ({
+export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
   candidateId,
   onBack,
   onOpenMatcher
 }) => {
-  const [candidate, setCandidate] = useState<Candidate | null>(null);
-  const [screening, setScreening] = useState<ScreeningResult | null>(null);
-  const [activeTab, setActiveTab] = useState<'screening' | 'spatial' | 'resume' | 'experience' | 'notes'>('screening');
-  const [loading, setLoading] = useState(true);
+  const cachedCand = apiCache.getCached<Candidate>(`candidate_${candidateId}`);
+  const cachedScreening = apiCache.getCached<ScreeningResult>(`screening_${candidateId}`);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchCandidateDetail(candidateId), fetchScreeningResult(candidateId)])
+  const [candidate, setCandidate] = useState<Candidate | null>(cachedCand || null);
+  const [screening, setScreening] = useState<ScreeningResult | null>(cachedScreening || null);
+  const [activeTab, setActiveTab] = useState<'screening' | 'spatial' | 'resume' | 'experience' | 'notes'>('screening');
+  const [loading, setLoading] = useState<boolean>(!cachedCand);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = useCallback((forceRefresh = false) => {
+    if (!cachedCand || forceRefresh) setLoading(true);
+    setError(null);
+    Promise.all([
+      fetchCandidateDetail(candidateId, forceRefresh),
+      fetchScreeningResult(candidateId, forceRefresh)
+    ])
       .then(([candRes, screenRes]) => {
         setCandidate(candRes);
         setScreening(screenRes);
@@ -29,28 +42,44 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = ({
       })
       .catch((err) => {
         console.error('Candidate profile load error:', err);
+        setError('Failed to load candidate profile details.');
         setLoading(false);
       });
-  }, [candidateId]);
+  }, [candidateId, cachedCand]);
 
-  if (loading || !candidate) {
-    return (
-      <div className="p-12 flex items-center justify-center min-h-[500px]">
-        <div className="flex items-center gap-3 text-[#006c49]">
-          <span className="material-symbols-outlined animate-spin text-3xl">sync</span>
-          <span className="font-bold text-sm">Loading Candidate Profile...</span>
-        </div>
-      </div>
-    );
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleShortlist = async () => {
+    if (!candidate) return;
+    try {
+      await updateCandidateStage(candidate.id, 'Shortlisted');
+      alert(`Candidate ${candidate.full_name} moved to Shortlisted stage!`);
+      onBack();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to shortlist candidate.');
+    }
+  };
+
+  if (error && !candidate) {
+    return <ErrorRetryCard message={error} onRetry={() => loadData(true)} />;
   }
 
+  if (loading && !candidate) {
+    return <CandidateProfileSkeleton />;
+  }
+
+  if (!candidate) return null;
+
   return (
-    <div className="p-8 space-y-6 max-w-[1440px] mx-auto">
+    <div className="p-8 space-y-6 max-w-[1440px] mx-auto animate-in fade-in duration-200">
       {/* Back Link & Quick Actions */}
       <div className="flex items-center justify-between">
         <button
           onClick={onBack}
-          className="flex items-center gap-2 text-xs font-bold text-[#006c49] hover:underline btn-3d btn-3d-glass px-3 py-1.5 rounded-xl"
+          className="flex items-center gap-2 text-xs font-bold text-[#006c49] hover:underline btn-3d btn-3d-glass px-3 py-1.5 rounded-xl cursor-pointer"
         >
           <span className="material-symbols-outlined text-sm">arrow_back</span>
           <span>Back to Pipeline</span>
@@ -59,7 +88,7 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = ({
         <div className="flex items-center gap-3">
           <button
             onClick={() => setActiveTab('spatial')}
-            className={`btn-3d px-4 py-2 text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+            className={`btn-3d px-4 py-2 text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
               activeTab === 'spatial' 
                 ? 'bg-[#131b2e] text-[#6cf8bb] border border-[#6cf8bb]' 
                 : 'btn-3d-glass text-[#006c49]'
@@ -70,23 +99,14 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = ({
           </button>
           <button
             onClick={() => onOpenMatcher(candidate.id, 1)}
-            className="btn-3d btn-3d-glass px-4 py-2 text-xs font-extrabold text-[#006c49] flex items-center gap-1.5"
+            className="btn-3d btn-3d-glass px-4 py-2 text-xs font-extrabold text-[#006c49] flex items-center gap-1.5 cursor-pointer"
           >
             <span className="material-symbols-outlined text-sm">auto_awesome</span>
             Open AI Matcher
           </button>
           <button
-            onClick={async () => {
-              try {
-                const { updateCandidateStage } = await import('../../services/api');
-                await updateCandidateStage(candidate.id, 'Shortlisted');
-                alert(`Candidate ${candidate.full_name} moved to Shortlisted stage!`);
-                onBack();
-              } catch (e) {
-                console.error(e);
-              }
-            }}
-            className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold"
+            onClick={handleShortlist}
+            className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold cursor-pointer"
           >
             Shortlist Candidate
           </button>
@@ -160,7 +180,7 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = ({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`pb-3 flex items-center gap-2 transition-all ${
+            className={`pb-3 flex items-center gap-2 transition-all cursor-pointer ${
               activeTab === tab.id
                 ? 'border-b-2 border-[#006c49] text-[#006c49] font-extrabold'
                 : 'text-[#45464d] hover:text-[#0b1c30]'
@@ -172,13 +192,22 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = ({
         ))}
       </div>
 
-      {/* 3D Spatial Node Tab */}
+      {/* 3D Spatial Node Tab (Lazy Loaded with Suspense) */}
       {activeTab === 'spatial' && (
-        <CandidateSpatialNodePreview
-          candidate={candidate}
-          screening={screening}
-          onOpenMatcher={() => onOpenMatcher(candidate.id, 1)}
-        />
+        <Suspense
+          fallback={
+            <div className="card-3d p-16 text-center text-xs text-[#006c49] font-bold flex items-center justify-center gap-3">
+              <span className="material-symbols-outlined animate-spin text-2xl">sync</span>
+              <span>Loading 3D Spatial Node Canvas & Shaders...</span>
+            </div>
+          }
+        >
+          <CandidateSpatialNodePreview
+            candidate={candidate}
+            screening={screening}
+            onOpenMatcher={() => onOpenMatcher(candidate.id, 1)}
+          />
+        </Suspense>
       )}
 
       {/* Screening Tab */}
@@ -257,10 +286,10 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = ({
             </div>
 
             <div className="flex items-center gap-2 text-xs">
-              <button className="btn-3d btn-3d-glass px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold">
+              <button className="btn-3d btn-3d-glass px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold cursor-pointer">
                 <span className="material-symbols-outlined text-xs">zoom_in</span> Zoom
               </button>
-              <button className="btn-3d btn-3d-emerald px-3.5 py-1.5 rounded-lg flex items-center gap-1 font-bold text-white">
+              <button className="btn-3d btn-3d-emerald px-3.5 py-1.5 rounded-lg flex items-center gap-1 font-bold text-white cursor-pointer">
                 <span className="material-symbols-outlined text-xs">download</span> Download PDF
               </button>
             </div>
@@ -341,11 +370,13 @@ B.S. in Computer Science — University of California, Berkeley (2018)`}
             className="w-full bg-[#f8f9ff] border border-[#c6c6cd] rounded-xl p-3.5 text-xs text-[#0b1c30] focus:outline-none focus:border-[#006c49] inset-depth font-medium"
             rows={4}
           />
-          <button className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl">
+          <button className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl cursor-pointer">
             Save Note
           </button>
         </div>
       )}
     </div>
   );
-};
+});
+
+CandidateProfile.displayName = 'CandidateProfile';

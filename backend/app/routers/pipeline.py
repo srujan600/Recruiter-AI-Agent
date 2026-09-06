@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from ..database import get_db
 from ..models import Application, Candidate, Job, ScreeningResult
@@ -9,7 +9,10 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["Pipeline"])
 
 @router.get("", response_model=List[ApplicationResponse])
 def get_pipeline(job_id: Optional[int] = None, db: Session = Depends(get_db)):
-    query = db.query(Application)
+    query = db.query(Application).options(
+        joinedload(Application.candidate),
+        joinedload(Application.job)
+    )
     if job_id:
         query = query.filter(Application.job_id == job_id)
     apps = query.order_by(Application.match_score.desc()).all()

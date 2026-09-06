@@ -15,8 +15,22 @@ UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.get("", response_model=List[CandidateResponse])
-def get_candidates(db: Session = Depends(get_db)):
-    return db.query(Candidate).order_by(Candidate.created_at.desc()).all()
+def get_candidates(
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    query = db.query(Candidate)
+    if q:
+        search_filter = f"%{q.strip()}%"
+        query = query.filter(
+            (Candidate.full_name.ilike(search_filter)) |
+            (Candidate.current_role.ilike(search_filter)) |
+            (Candidate.location.ilike(search_filter)) |
+            (Candidate.email.ilike(search_filter))
+        )
+    return query.order_by(Candidate.created_at.desc()).offset(offset).limit(limit).all()
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 def get_candidate(candidate_id: int, db: Session = Depends(get_db)):

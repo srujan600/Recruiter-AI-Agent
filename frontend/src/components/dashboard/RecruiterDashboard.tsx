@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { fetchDashboardAnalytics } from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { fetchDashboardAnalytics, apiCache } from '../../services/api';
 import type { AnalyticsData } from '../../types';
 import { SpatialAIOrb } from '../common/SpatialAIOrb';
+import { DashboardSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
 interface RecruiterDashboardProps {
   onNavigate: (tab: string, candidateId?: number) => void;
@@ -9,39 +10,46 @@ interface RecruiterDashboardProps {
   onOpenAgent: () => void;
 }
 
-export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = ({
+export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = React.memo(({
   onNavigate,
   onOpenUpload,
   onOpenAgent
 }) => {
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Check if cached data already exists synchronously for instant render (< 1ms)
+  const cached = apiCache.getCached<AnalyticsData>('analytics');
+  const [data, setData] = useState<AnalyticsData | null>(cached || null);
+  const [loading, setLoading] = useState<boolean>(!cached);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDashboardAnalytics()
+  const loadDashboard = useCallback((forceRefresh = false) => {
+    if (!cached) setLoading(true);
+    setError(null);
+    fetchDashboardAnalytics(forceRefresh)
       .then((res) => {
         setData(res);
         setLoading(false);
       })
       .catch((err) => {
         console.error('Analytics load error:', err);
+        setError('Failed to load dashboard telemetry. Please check the backend connection.');
         setLoading(false);
       });
-  }, []);
+  }, [cached]);
 
-  if (loading) {
-    return (
-      <div className="p-8 flex items-center justify-center min-h-[500px]">
-        <div className="flex items-center gap-3 text-[#006c49]">
-          <span className="material-symbols-outlined animate-spin text-3xl">sync</span>
-          <span className="font-bold text-sm">Loading Recruiter Dashboard...</span>
-        </div>
-      </div>
-    );
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  if (error && !data) {
+    return <ErrorRetryCard message={error} onRetry={() => loadDashboard(true)} />;
+  }
+
+  if (loading && !data) {
+    return <DashboardSkeleton />;
   }
 
   return (
-    <div className="p-8 space-y-6 max-w-[1440px] mx-auto">
+    <div className="p-8 space-y-6 max-w-[1440px] mx-auto animate-in fade-in duration-200">
       {/* 3D Spatial Hero Command Center Banner */}
       <div className="relative rounded-3xl p-7 text-white shadow-xl overflow-hidden bg-gradient-to-r from-[#131b2e] via-[#1b263e] to-[#0b1c30] border border-[#6cf8bb]/30 flex flex-col md:flex-row md:items-center justify-between gap-6">
         {/* Background Radial Glow */}
@@ -179,7 +187,7 @@ export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = ({
             </div>
             <button
               onClick={() => onNavigate('pipeline')}
-              className="text-xs font-bold text-[#006c49] hover:underline flex items-center gap-1"
+              className="text-xs font-bold text-[#006c49] hover:underline flex items-center gap-1 cursor-pointer"
             >
               <span>View Kanban Board</span>
               <span className="material-symbols-outlined text-sm">arrow_forward</span>
@@ -231,4 +239,6 @@ export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = ({
       </div>
     </div>
   );
-};
+});
+
+RecruiterDashboard.displayName = 'RecruiterDashboard';

@@ -4,9 +4,10 @@ interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
   onOpenAgent: () => void;
+  onPrefetch?: (tab: string) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, onOpenAgent }) => {
+export const Sidebar: React.FC<SidebarProps> = React.memo(({ currentTab, onTabChange, onOpenAgent, onPrefetch }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'pipeline', label: 'Candidate Pipeline', icon: 'view_kanban', badge: '7 Stages' },
@@ -49,13 +50,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, onOpe
         </div>
         <button
           onClick={onOpenAgent}
-          className="btn-3d btn-3d-emerald px-3 py-1.5 text-xs font-bold rounded-xl"
+          className="btn-3d btn-3d-emerald px-3 py-1.5 text-xs font-bold rounded-xl cursor-pointer"
         >
           Ask AI
         </button>
       </div>
 
-      {/* Navigation Links */}
+      {/* Navigation Links with Hover Prefetching */}
       <nav className="flex-1 px-3 py-2 space-y-1.5 overflow-y-auto custom-scrollbar">
         {navItems.map((item) => {
           const isActive = currentTab === item.id;
@@ -63,7 +64,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, onOpe
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              onMouseEnter={() => onPrefetch?.(item.id)}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
                   ? 'bg-gradient-to-r from-[#131b2e] to-[#1b263e] text-white shadow-md border border-white/10'
                   : 'text-[#45464d] hover:bg-[#eff4ff] hover:text-[#0b1c30] hover:translate-x-0.5'
@@ -92,6 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, onOpe
             <img
               src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=150"
               alt="Sarah Jenkins"
+              loading="lazy"
               className="w-10 h-10 rounded-full object-cover border-2 border-[#6cf8bb] shadow-sm"
             />
             <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#6cf8bb] border-2 border-white rounded-full" />
@@ -107,4 +110,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, onOpe
       </div>
     </aside>
   );
-};
+});
+
+Sidebar.displayName = 'Sidebar';

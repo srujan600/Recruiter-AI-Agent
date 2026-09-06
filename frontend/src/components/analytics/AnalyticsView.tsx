@@ -1,25 +1,35 @@
-import React, { useEffect, useState } from 'react';
-import { fetchDashboardAnalytics } from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { fetchDashboardAnalytics, apiCache } from '../../services/api';
 import type { AnalyticsData } from '../../types';
+import { AnalyticsSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
-export const AnalyticsView: React.FC = () => {
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
+export const AnalyticsView: React.FC = React.memo(() => {
+  const cachedData = apiCache.getCached<AnalyticsData>('analytics');
+  const [data, setData] = useState<AnalyticsData | null>(cachedData || null);
+  const [loading, setLoading] = useState<boolean>(!cachedData);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDashboardAnalytics()
+  const loadData = useCallback((forceRefresh = false) => {
+    if (!cachedData || forceRefresh) setLoading(true);
+    setError(null);
+    fetchDashboardAnalytics(forceRefresh)
       .then((res) => {
         setData(res);
         setLoading(false);
       })
       .catch((err) => {
         console.error('Analytics load error:', err);
+        setError('Failed to load recruitment analytics.');
         setLoading(false);
       });
-  }, []);
+  }, [cachedData]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   return (
-    <div className="p-8 space-y-6 max-w-[1440px] mx-auto">
+    <div className="p-8 space-y-6 max-w-[1440px] mx-auto animate-in fade-in duration-200">
       {/* Header */}
       <div className="card-3d p-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -37,8 +47,10 @@ export const AnalyticsView: React.FC = () => {
         </span>
       </div>
 
-      {loading ? (
-        <div className="p-12 text-center text-xs text-[#006c49] font-bold">Loading Spatial Analytics...</div>
+      {error && !data ? (
+        <ErrorRetryCard message={error} onRetry={() => loadData(true)} />
+      ) : loading && !data ? (
+        <AnalyticsSkeleton />
       ) : (
         <div className="space-y-6">
           {/* KPI Cards */}
@@ -107,4 +119,7 @@ export const AnalyticsView: React.FC = () => {
       )}
     </div>
   );
-};
+});
+
+AnalyticsView.displayName = 'AnalyticsView';
+

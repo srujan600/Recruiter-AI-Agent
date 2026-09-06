@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { fetchInterviews, scheduleInterview, fetchPipeline } from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { fetchInterviews, scheduleInterview, fetchPipeline, apiCache } from '../../services/api';
 import type { Interview, Application } from '../../types';
+import { InterviewsSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
-export const InterviewScheduler: React.FC = () => {
-  const [interviews, setInterviews] = useState<Interview[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
+export const InterviewScheduler: React.FC = React.memo(() => {
+  const cachedInterviews = apiCache.getCached<Interview[]>('interviews');
+  const cachedApps = apiCache.getCached<Application[]>('pipeline');
+
+  const [interviews, setInterviews] = useState<Interview[]>(cachedInterviews || []);
+  const [applications, setApplications] = useState<Application[]>(cachedApps || []);
+  const [loading, setLoading] = useState<boolean>(!cachedInterviews);
+  const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -18,9 +23,10 @@ export const InterviewScheduler: React.FC = () => {
   const [duration, setDuration] = useState(45);
   const [meetingLink, setMeetingLink] = useState('https://meet.google.com/abc-defg-hij');
 
-  const loadData = () => {
-    setLoading(true);
-    Promise.all([fetchInterviews(), fetchPipeline()])
+  const loadData = useCallback((forceRefresh = false) => {
+    if (!cachedInterviews || forceRefresh) setLoading(true);
+    setError(null);
+    Promise.all([fetchInterviews(forceRefresh), fetchPipeline(undefined, forceRefresh)])
       .then(([invRes, appRes]) => {
         setInterviews(invRes);
         setApplications(appRes);
@@ -29,13 +35,14 @@ export const InterviewScheduler: React.FC = () => {
       })
       .catch((err) => {
         console.error('Interviews error:', err);
+        setError('Failed to load scheduled interviews.');
         setLoading(false);
       });
-  };
+  }, [cachedInterviews]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleScheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,8 +89,10 @@ export const InterviewScheduler: React.FC = () => {
         </button>
       </div>
 
-      {loading ? (
-        <div className="p-12 text-center text-xs text-[#006c49] font-bold">Loading Interviews...</div>
+      {error && interviews.length === 0 ? (
+        <ErrorRetryCard message={error} onRetry={() => loadData(true)} />
+      ) : loading && interviews.length === 0 ? (
+        <InterviewsSkeleton />
       ) : (
         <div className="card-3d overflow-hidden">
           <table className="w-full text-left text-xs">
@@ -264,5 +273,8 @@ export const InterviewScheduler: React.FC = () => {
       )}
     </div>
   );
-};
+});
+
+InterviewScheduler.displayName = 'InterviewScheduler';
+
 

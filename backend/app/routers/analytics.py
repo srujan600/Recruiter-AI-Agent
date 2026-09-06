@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from ..database import get_db
 from ..models import Candidate, Job, Application, Interview, Assessment
 
@@ -11,12 +12,15 @@ def get_dashboard_analytics(db: Session = Depends(get_db)):
     total_candidates_count = db.query(Candidate).count()
     scheduled_interviews_count = db.query(Interview).filter(Interview.status == "scheduled").count()
 
-    # Stage funnel counts
+    # Stage funnel counts in 1 single grouped query instead of 9 individual count queries
+    stage_counts = dict(
+        db.query(Application.stage, func.count(Application.id))
+        .group_by(Application.stage)
+        .all()
+    )
     stages = ["Applied", "AI Screening", "Shortlisted", "Assessment", "Interview", "Offer", "Hired", "Rejected"]
-    funnel = []
-    for st in stages:
-        count = db.query(Application).filter(Application.stage == st).count()
-        funnel.append({"stage": st, "count": count})
+    funnel = [{"stage": st, "count": stage_counts.get(st, 0)} for st in stages]
+    screening_queue_count = stage_counts.get("AI Screening", 0)
 
     return {
         "active_jobs": active_jobs_count,
@@ -25,9 +29,9 @@ def get_dashboard_analytics(db: Session = Depends(get_db)):
         "offer_acceptance_rate_pct": 91.5,
         "scheduled_interviews": scheduled_interviews_count,
         "process_bottleneck": {
-            "detected": True,
+            "detected": screening_queue_count > 0,
             "stage": "AI Screening",
-            "count": db.query(Application).filter(Application.stage == "AI Screening").count(),
+            "count": screening_queue_count,
             "message": "AI Screening queue has candidates awaiting evaluation."
         },
         "hiring_funnel": funnel,

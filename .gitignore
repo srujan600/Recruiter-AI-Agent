@@ -28,6 +28,8 @@ venv/
 *.db
 *.sqlite
 *.sqlite3
+*.db-wal
+*.db-shm
 
 # Node / JS / Web
 node_modules/

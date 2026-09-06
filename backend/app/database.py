@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from .models import Base, Job, Candidate, Application, ScreeningResult, Assessment, Interview, CandidateNote, Notification, User
 from datetime import datetime, timedelta
@@ -10,6 +10,16 @@ SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
+
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-64000") # 64MB cache
+    cursor.execute("PRAGMA temp_store=MEMORY")
+    cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
@@ -23,6 +33,24 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
+        # Ensure indexes exist on SQLite
+        index_queries = [
+            "CREATE INDEX IF NOT EXISTS ix_applications_job_id ON applications(job_id);",
+            "CREATE INDEX IF NOT EXISTS ix_applications_candidate_id ON applications(candidate_id);",
+            "CREATE INDEX IF NOT EXISTS ix_applications_stage ON applications(stage);",
+            "CREATE INDEX IF NOT EXISTS ix_candidates_full_name ON candidates(full_name);",
+            "CREATE INDEX IF NOT EXISTS ix_screening_results_application_id ON screening_results(application_id);",
+            "CREATE INDEX IF NOT EXISTS ix_interviews_application_id ON interviews(application_id);",
+            "CREATE INDEX IF NOT EXISTS ix_interviews_status ON interviews(status);",
+            "CREATE INDEX IF NOT EXISTS ix_assessments_application_id ON assessments(application_id);",
+            "CREATE INDEX IF NOT EXISTS ix_assessments_status ON assessments(status);",
+            "CREATE INDEX IF NOT EXISTS ix_resumes_candidate_id ON resumes(candidate_id);",
+            "CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status);",
+            "CREATE INDEX IF NOT EXISTS ix_notifications_is_read ON notifications(is_read);"
+        ]
+        for q in index_queries:
+            db.execute(text(q))
+        db.commit()
         # Seed default user if empty
         if db.query(User).count() == 0:
             default_user = User(
