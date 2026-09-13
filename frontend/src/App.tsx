@@ -70,8 +70,9 @@ export function App() {
     routePrefetchers[tab]?.();
   }, []);
 
-  const handleNavigate = useCallback((tab: string, candidateId?: number) => {
+  const handleNavigate = useCallback((tab: string, candidateId?: number, jobId?: number) => {
     if (candidateId) setSelectedCandidateId(candidateId);
+    if (jobId !== undefined) setSelectedJobId(jobId);
     setCurrentTab(tab);
   }, []);
 
@@ -111,6 +112,7 @@ export function App() {
 
           {currentTab === 'pipeline' && (
             <CandidatePipeline
+              initialJobId={selectedJobId}
               onSelectCandidate={(id) => handleNavigate('profile', id)}
               onOpenMatcher={handleOpenMatcher}
             />

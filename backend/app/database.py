@@ -1,15 +1,17 @@
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
-from .models import Base, Job, Candidate, Application, ScreeningResult, Assessment, Interview, CandidateNote, Notification, User
+from .models import Base, Job, Candidate, Application, ScreeningResult, Assessment, Interview, CandidateNote, Notification, User, EventLog
 from datetime import datetime, timedelta
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "recruiter_ai.db")
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+connect_args = {"check_same_thread": False} if SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
 
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -287,6 +289,42 @@ def init_db():
                 is_read=False
             )
             db.add_all([n1, n2])
+            db.commit()
+
+        # Seed initial EventLog entries if empty
+        if db.query(EventLog).count() == 0:
+            c1 = db.query(Candidate).filter(Candidate.full_name == "Alexander Chen").first()
+            c2 = db.query(Candidate).filter(Candidate.full_name == "Elena Rostova").first()
+            c5 = db.query(Candidate).filter(Candidate.full_name == "Alex Mercer").first()
+            e1 = EventLog(
+                event_type="candidate_screened",
+                entity_type="candidate",
+                entity_id=c1.id if c1 else 1,
+                description="Alexander Chen scored 94% match for Senior Frontend Engineer.",
+                created_at=datetime.utcnow() - timedelta(minutes=12)
+            )
+            e2 = EventLog(
+                event_type="interview_scheduled",
+                entity_type="interview",
+                entity_id=1,
+                description="Technical interview booked for Elena Rostova with Dr. Aris Thorne.",
+                created_at=datetime.utcnow() - timedelta(hours=1, minutes=15)
+            )
+            e3 = EventLog(
+                event_type="assessment_completed",
+                entity_type="assessment",
+                entity_id=1,
+                description="Alex Mercer scored 92/100 on Frontend Architecture test.",
+                created_at=datetime.utcnow() - timedelta(hours=3, minutes=45)
+            )
+            e4 = EventLog(
+                event_type="candidate_created",
+                entity_type="candidate",
+                entity_id=c2.id if c2 else 2,
+                description="Elena Rostova applied for Staff AI / LangGraph Architect.",
+                created_at=datetime.utcnow() - timedelta(days=1)
+            )
+            db.add_all([e1, e2, e3, e4])
             db.commit()
     finally:
         db.close()

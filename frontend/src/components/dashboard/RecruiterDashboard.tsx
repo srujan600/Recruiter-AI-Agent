@@ -56,18 +56,35 @@ export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = React.memo(
         <div className="absolute -right-16 -top-16 w-80 h-80 bg-[#006c49]/30 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute left-1/3 -bottom-10 w-64 h-64 bg-[#6cf8bb]/15 rounded-full blur-2xl pointer-events-none" />
 
-        <div className="space-y-3 relative z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md border border-white/20 rounded-full text-xs font-bold text-[#6cf8bb] shadow-2xs">
-            <span className="material-symbols-outlined text-sm">event</span>
-            <span>Today: Monday, August 17, 2026</span>
-          </div>
-          <h1 className="text-3xl font-black tracking-tight text-white drop-shadow-sm">
-            Good Morning, Sarah.
-          </h1>
-          <p className="text-xs text-[#c6c6cd] max-w-xl leading-relaxed">
-            You have <strong className="text-[#6cf8bb]">4 top-matched candidates</strong> awaiting AI Screening review and 1 technical interview scheduled today.
-          </p>
-        </div>
+        {(() => {
+          const todayFormatted = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+          }).format(new Date());
+
+          const screeningCount = data?.process_bottleneck?.stage === 'AI Screening' 
+            ? data.process_bottleneck.count 
+            : (data?.hiring_funnel?.find(f => f.stage === 'AI Screening')?.count ?? 0);
+
+          const interviewCount = data?.scheduled_interviews ?? 0;
+
+          return (
+            <div className="space-y-3 relative z-10">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md border border-white/20 rounded-full text-xs font-bold text-[#6cf8bb] shadow-2xs">
+                <span className="material-symbols-outlined text-sm">event</span>
+                <span>Today: {todayFormatted}</span>
+              </div>
+              <h1 className="text-3xl font-black tracking-tight text-white drop-shadow-sm">
+                Good Morning, Sarah.
+              </h1>
+              <p className="text-xs text-[#c6c6cd] max-w-xl leading-relaxed">
+                You have <strong className="text-[#6cf8bb]">{screeningCount} candidate{screeningCount === 1 ? '' : 's'}</strong> awaiting AI Screening review and <strong className="text-[#6cf8bb]">{interviewCount} interview{interviewCount === 1 ? '' : 's'}</strong> scheduled.
+              </p>
+            </div>
+          );
+        })()}
 
         <div className="flex items-center gap-4 relative z-10">
           <SpatialAIOrb size="md" active={true} />

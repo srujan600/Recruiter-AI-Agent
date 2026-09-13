@@ -1,7 +1,12 @@
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
 from .routers import jobs, candidates, pipeline, screening, matching, interviews, assessments, analytics, assistant, notifications
+
+# Load environment configuration
+load_dotenv()
 
 app = FastAPI(
     title="TalentOS - Recruiter AI Platform API",
@@ -10,9 +15,12 @@ app = FastAPI(
 )
 
 # CORS middleware for React / Vite frontend
+raw_cors = os.getenv("CORS_ORIGINS", "*")
+cors_origins = [origin.strip() for origin in raw_cors.split(",") if origin.strip()] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins if "*" not in cors_origins else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

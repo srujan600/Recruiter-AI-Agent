@@ -18,6 +18,36 @@ export interface Job {
   applicant_count?: number;
 }
 
+export interface Resume {
+  id: number;
+  candidate_id: number;
+  filename: string;
+  file_path: string;
+  file_type: string;
+  parsed_text?: string;
+  parsed_skills?: string[];
+  parsed_experience?: Array<{
+    title: string;
+    company: string;
+    duration: string;
+    description: string;
+  }>;
+  parsed_education?: Array<{
+    degree: string;
+    institution: string;
+    year: string;
+  }>;
+  created_at: string;
+}
+
+export interface CandidateNote {
+  id: number;
+  candidate_id: number;
+  author_name: string;
+  note_text: string;
+  created_at: string;
+}
+
 export interface Candidate {
   id: number;
   full_name: string;
@@ -32,6 +62,10 @@ export interface Candidate {
   current_salary: number;
   avatar_url?: string;
   created_at: string;
+  resumes?: Resume[];
+  parsed_skills?: string[];
+  applications?: Application[];
+  notes?: CandidateNote[];
 }
 
 export type PipelineStage = 
@@ -83,6 +117,10 @@ export interface Interview {
   status: 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
   notes?: string;
   created_at: string;
+  candidate_name?: string;
+  candidate_avatar?: string;
+  job_id?: number;
+  job_title?: string;
 }
 
 export interface Assessment {
@@ -95,6 +133,10 @@ export interface Assessment {
   max_score: number;
   completed_at?: string;
   summary?: string;
+  candidate_name?: string;
+  candidate_avatar?: string;
+  job_id?: number;
+  job_title?: string;
 }
 
 export interface AnalyticsData {

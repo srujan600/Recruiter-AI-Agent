@@ -96,7 +96,17 @@ function OrbitalRing({ radius, color, rotation = [Math.PI / 3, 0, 0] }: { radius
 }
 
 // Central Spatial Node representing Candidate Profile
-function CandidateCoreNode({ candidate, matchScore = 94, autoRotate = true }: { candidate: Candidate; matchScore?: number; autoRotate?: boolean }) {
+function CandidateCoreNode({ 
+  candidate, 
+  matchScore = 94, 
+  autoRotate = true,
+  screening
+}: { 
+  candidate: Candidate; 
+  matchScore?: number; 
+  autoRotate?: boolean;
+  screening?: ScreeningResult | null;
+}) {
   const coreRef = useRef<THREE.Group>(null);
   const outerSphereRef = useRef<THREE.Mesh>(null);
 
@@ -111,12 +121,29 @@ function CandidateCoreNode({ candidate, matchScore = 94, autoRotate = true }: { 
     }
   });
 
-  const skills = [
-    { name: 'React / Next.js', radius: 2.2, speed: 0.6, color: '#38bdf8', offset: 0, score: 98 },
-    { name: 'TypeScript', radius: 2.8, speed: 0.45, color: '#818cf8', offset: 2, score: 95 },
-    { name: 'System Design', radius: 3.4, speed: 0.35, color: '#6cf8bb', offset: 4, score: 91 },
-    { name: 'AI Integration', radius: 2.5, speed: 0.5, color: '#f472b6', offset: 1.5, score: 88 }
-  ];
+  // Dynamically resolve skills from resume parsed skills, candidate profile, or screening strengths
+  const rawSkills: string[] = [];
+  if (candidate.resumes && candidate.resumes.length > 0 && candidate.resumes[0].parsed_skills?.length) {
+    rawSkills.push(...candidate.resumes[0].parsed_skills);
+  } else if (candidate.parsed_skills && candidate.parsed_skills.length > 0) {
+    rawSkills.push(...candidate.parsed_skills);
+  } else if (screening?.key_strengths && screening.key_strengths.length > 0) {
+    rawSkills.push(...screening.key_strengths.map(s => s.split(':')[0].trim()));
+  } else {
+    rawSkills.push('Full Stack', 'System Design', 'TypeScript', 'Cloud Infra');
+  }
+
+  const uniqueSkills = Array.from(new Set(rawSkills.map(s => s.trim()))).filter(Boolean).slice(0, 5);
+  const colorPalette = ['#38bdf8', '#818cf8', '#6cf8bb', '#f472b6', '#fbbf24'];
+
+  const skills = uniqueSkills.map((name, idx) => ({
+    name: name.length > 20 ? name.slice(0, 18) + '...' : name,
+    radius: 2.1 + idx * 0.45,
+    speed: 0.65 - idx * 0.07,
+    color: colorPalette[idx % colorPalette.length],
+    offset: idx * 1.5,
+    score: Math.max(98 - idx * 3, 85)
+  }));
 
   return (
     <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
@@ -282,7 +309,7 @@ export const CandidateSpatialNodePreview: React.FC<CandidateSpatialNodePreviewPr
             <pointLight position={[5, -5, 5]} intensity={0.6} color="#818cf8" />
             
             <Suspense fallback={<Canvas3DLoader />}>
-              <CandidateCoreNode candidate={candidate} matchScore={overallMatch} autoRotate={autoRotate} />
+              <CandidateCoreNode candidate={candidate} matchScore={overallMatch} autoRotate={autoRotate} screening={screening} />
             </Suspense>
 
             {/* OrbitControls: Touch scroll friendly with restricted zoom and max pitch */}

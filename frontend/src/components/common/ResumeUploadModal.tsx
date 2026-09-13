@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { uploadCandidateResume } from '../../services/api';
+import React, { useState, useEffect } from 'react';
+import { uploadCandidateResume, fetchJobs, apiCache } from '../../services/api';
+import type { Job } from '../../types';
 
 interface ResumeUploadModalProps {
   isOpen: boolean;
@@ -14,27 +15,45 @@ export const ResumeUploadModal: React.FC<ResumeUploadModalProps> = ({
   onClose,
   onSuccess
 }) => {
+  const cachedJobs = apiCache.getCached<Job[]>('jobs');
+  const [jobs, setJobs] = useState<Job[]>(cachedJobs || []);
+  const [selectedJobId, setSelectedJobId] = useState<number | undefined>(undefined);
   const [file, setFile] = useState<File | null>(null);
   const [uploadStep, setUploadStep] = useState<UploadStep>('idle');
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && jobs.length === 0) {
+      fetchJobs().then((data) => {
+        setJobs(data);
+        if (data.length > 0) {
+          const active = data.find(j => j.status === 'active') || data[0];
+          setSelectedJobId(active.id);
+        }
+      }).catch(err => console.error('Failed to load jobs for upload modal:', err));
+    } else if (isOpen && jobs.length > 0 && !selectedJobId) {
+      const active = jobs.find(j => j.status === 'active') || jobs[0];
+      setSelectedJobId(active.id);
+    }
+  }, [isOpen, jobs, selectedJobId]);
 
   if (!isOpen) return null;
 
   const handleUpload = async () => {
     if (!file) {
-      setError('Please select a PDF or DOCX resume file.');
+      setError('Please select a PDF, DOCX, or TXT resume file.');
       return;
     }
 
     setUploadStep('uploading');
     setError(null);
 
-    // Simulate progressive UI states while the async API processes
+    // Progressive visual feedback indicators while async API processes
     const stepTimer1 = setTimeout(() => setUploadStep('parsing'), 600);
     const stepTimer2 = setTimeout(() => setUploadStep('screening'), 1400);
 
     try {
-      await uploadCandidateResume(file);
+      await uploadCandidateResume(file, selectedJobId);
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       setUploadStep('complete');
@@ -76,6 +95,28 @@ export const ResumeUploadModal: React.FC<ResumeUploadModalProps> = ({
         </div>
 
         <div className="space-y-4">
+          {/* Job Selection Dropdown */}
+          <div className="space-y-1 text-xs">
+            <label className="font-extrabold text-[#0b1c30] flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-[#006c49]">work</span>
+              <span>Target Job Requisition</span>
+            </label>
+            <select
+              value={selectedJobId || ''}
+              onChange={(e) => setSelectedJobId(e.target.value ? Number(e.target.value) : undefined)}
+              disabled={isProcessing}
+              className="w-full bg-[#f8f9ff] border border-[#c6c6cd] rounded-xl p-2.5 text-xs font-bold text-[#0b1c30] focus:outline-none focus:border-[#006c49] inset-depth cursor-pointer disabled:opacity-50"
+            >
+              {jobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.title} — {job.department} ({job.status})
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-[#76777d]">AI will automatically screen and match candidate against this job's criteria.</p>
+          </div>
+
+          {/* File Upload Dropzone */}
           <div className={`border-2 border-dashed ${file ? 'border-[#006c49] bg-[#eff4ff]/50' : 'border-[#c6c6cd] bg-[#f8f9ff]'} hover:border-[#006c49] rounded-2xl p-6 text-center space-y-3 inset-depth relative transition-colors`}>
             <span className={`material-symbols-outlined text-4xl ${file ? 'text-[#006c49]' : 'text-[#76777d]'}`}>
               description
@@ -84,7 +125,7 @@ export const ResumeUploadModal: React.FC<ResumeUploadModalProps> = ({
               <p className="text-xs font-bold text-[#0b1c30]">
                 {file ? file.name : 'Click to select or drag PDF/DOCX resume'}
               </p>
-              <p className="text-[11px] text-[#76777d] mt-1 font-medium">Supports PDF, DOCX up to 10MB</p>
+              <p className="text-[11px] text-[#76777d] mt-1 font-medium">Supports PDF, DOCX, TXT up to 10MB</p>
             </div>
             {!isProcessing && (
               <input
@@ -103,7 +144,7 @@ export const ResumeUploadModal: React.FC<ResumeUploadModalProps> = ({
                 <span className="flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-sm animate-spin">sync</span>
                   {uploadStep === 'uploading' && 'Step 1: Uploading Resume Document...'}
-                  {uploadStep === 'parsing' && 'Step 2: Extracting Text, Skills & History...'}
+                  {uploadStep === 'parsing' && 'Step 2: AI Extracting Text, Skills & History...'}
                   {uploadStep === 'screening' && 'Step 3: Calculating AI ATS & Match Score...'}
                   {uploadStep === 'complete' && '✓ Candidate Processed Successfully!'}
                 </span>
@@ -149,7 +190,7 @@ export const ResumeUploadModal: React.FC<ResumeUploadModalProps> = ({
           </button>
           <button
             onClick={handleUpload}
-            disabled={isProcessing}
+            disabled={isProcessing || !file}
             className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isProcessing ? 'Processing Pipeline...' : 'Upload & Parse AI'}

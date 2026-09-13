@@ -1,6 +1,13 @@
 import React, { useEffect, useState, useCallback, Suspense } from 'react';
-import { fetchCandidateDetail, fetchScreeningResult, updateCandidateStage, apiCache } from '../../services/api';
-import type { Candidate, ScreeningResult } from '../../types';
+import { 
+  fetchCandidateDetail, 
+  fetchScreeningResult, 
+  updateCandidateStage, 
+  fetchCandidateNotes, 
+  createCandidateNote, 
+  apiCache 
+} from '../../services/api';
+import type { Candidate, ScreeningResult, CandidateNote } from '../../types';
 import { CandidateProfileSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
 // Lazy-load Three.js & Fiber 3D spatial node only when spatial tab is selected
@@ -24,6 +31,10 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
 
   const [candidate, setCandidate] = useState<Candidate | null>(cachedCand || null);
   const [screening, setScreening] = useState<ScreeningResult | null>(cachedScreening || null);
+  const [notes, setNotes] = useState<CandidateNote[]>([]);
+  const [newNoteText, setNewNoteText] = useState<string>('');
+  const [savingNote, setSavingNote] = useState<boolean>(false);
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [activeTab, setActiveTab] = useState<'screening' | 'spatial' | 'resume' | 'experience' | 'notes'>('screening');
   const [loading, setLoading] = useState<boolean>(!cachedCand);
   const [error, setError] = useState<string | null>(null);
@@ -33,11 +44,13 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
     setError(null);
     Promise.all([
       fetchCandidateDetail(candidateId, forceRefresh),
-      fetchScreeningResult(candidateId, forceRefresh)
+      fetchScreeningResult(candidateId, forceRefresh),
+      fetchCandidateNotes(candidateId, forceRefresh).catch(() => [])
     ])
-      .then(([candRes, screenRes]) => {
+      .then(([candRes, screenRes, notesRes]) => {
         setCandidate(candRes);
         setScreening(screenRes);
+        setNotes(notesRes || []);
         setLoading(false);
       })
       .catch((err) => {
@@ -53,14 +66,67 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
 
   const handleShortlist = async () => {
     if (!candidate) return;
+    const appId = candidate.applications?.[0]?.id || screening?.application_id;
+    if (!appId) {
+      alert('Unable to resolve active application ID.');
+      return;
+    }
     try {
-      await updateCandidateStage(candidate.id, 'Shortlisted');
+      await updateCandidateStage(appId, 'Shortlisted');
       alert(`Candidate ${candidate.full_name} moved to Shortlisted stage!`);
       onBack();
     } catch (e) {
       console.error(e);
       alert('Failed to shortlist candidate.');
     }
+  };
+
+  const handleSaveNote = async () => {
+    if (!newNoteText.trim() || !candidate) return;
+    setSavingNote(true);
+    try {
+      const savedNote = await createCandidateNote(candidate.id, newNoteText.trim());
+      setNotes((prev) => [savedNote, ...prev]);
+      setNewNoteText('');
+    } catch (e) {
+      console.error('Failed to save note:', e);
+      alert('Failed to save note.');
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const handleDownloadResume = () => {
+    if (!candidate) return;
+    const resumeText = candidate.resumes?.[0]?.parsed_text || `
+${candidate.full_name.toUpperCase()}
+${candidate.current_role || 'Software Engineer'} | ${candidate.location}
+Email: ${candidate.email} | Phone: ${candidate.phone || 'N/A'}
+Experience: ${candidate.total_experience_years} Years
+
+SUMMARY:
+Experienced professional specializing in ${candidate.resumes?.[0]?.parsed_skills?.join(', ') || 'modern software engineering'}.
+
+WORK EXPERIENCE:
+${candidate.resumes?.[0]?.parsed_experience?.map(e => `${e.title} - ${e.company} (${e.duration})\n${e.description}`).join('\n\n') || `${candidate.current_role || 'Engineer'} at ${candidate.current_company || 'Tech Systems'} (Present)`}
+
+EDUCATION:
+${candidate.resumes?.[0]?.parsed_education?.map(ed => `${ed.degree} - ${ed.institution} (${ed.year})`).join('\n') || 'B.S. in Computer Science'}
+    `.trim();
+
+    const blob = new Blob([resumeText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${candidate.full_name.replace(/\s+/g, '_')}_Resume.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleToggleZoom = () => {
+    setZoomLevel((prev) => (prev === 100 ? 125 : prev === 125 ? 150 : 100));
   };
 
   if (error && !candidate) {
@@ -72,6 +138,18 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
   }
 
   if (!candidate) return null;
+
+  const resumeData = candidate.resumes?.[0];
+  const experienceList = resumeData?.parsed_experience?.length
+    ? resumeData.parsed_experience
+    : [
+        {
+          title: candidate.current_role || "Senior Software Engineer",
+          company: candidate.current_company || "Technology Solutions Inc.",
+          duration: "2021 – Present",
+          description: `Led high-impact engineering initiatives, optimized performance workflows, and applied expertise across modern technologies.`
+        }
+      ];
 
   return (
     <div className="p-8 space-y-6 max-w-[1440px] mx-auto animate-in fade-in duration-200">
@@ -128,11 +206,11 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-black text-[#0b1c30] tracking-tight">{candidate.full_name}</h1>
               <span className="px-2.5 py-0.5 bg-[#eff4ff] text-[#006c49] font-extrabold text-xs rounded-full border border-[#d3e4fe]">
-                Senior Candidate
+                {candidate.total_experience_years >= 6 ? 'Senior Candidate' : 'Candidate'}
               </span>
             </div>
             <p className="text-xs text-[#45464d] font-bold">
-              {candidate.current_role || 'Senior Frontend Engineer'} • {candidate.current_company || 'TechFlow Systems'}
+              {candidate.current_role || 'Senior Software Engineer'} • {candidate.current_company || 'Technology Systems'}
             </p>
             <div className="flex items-center gap-4 text-xs text-[#76777d] pt-1">
               <span className="flex items-center gap-1 font-medium">
@@ -143,10 +221,12 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
                 <span className="material-symbols-outlined text-sm text-[#006c49]">mail</span>
                 {candidate.email}
               </span>
-              <span className="flex items-center gap-1 font-medium">
-                <span className="material-symbols-outlined text-sm text-[#006c49]">call</span>
-                {candidate.phone}
-              </span>
+              {candidate.phone && (
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="material-symbols-outlined text-sm text-[#006c49]">call</span>
+                  {candidate.phone}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -156,31 +236,31 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
           <div className="text-center px-4 border-r border-[#c6c6cd]">
             <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#6cf8bb] text-[#002113] rounded-full text-xs font-black shadow-xs">
               <span className="material-symbols-outlined text-xs">auto_awesome</span>
-              <span>{screening?.overall_match_score || 94}%</span>
+              <span>{screening?.overall_match_score || 90}%</span>
             </div>
             <span className="text-[10px] font-extrabold text-[#45464d] block mt-1">AI Match Score</span>
           </div>
 
           <div className="text-center px-4">
-            <span className="text-xl font-black text-[#0b1c30] block">{screening?.ats_score || 92}%</span>
+            <span className="text-xl font-black text-[#0b1c30] block">{screening?.ats_score || 88}%</span>
             <span className="text-[10px] font-extrabold text-[#45464d] block mt-1">ATS Parser Score</span>
           </div>
         </div>
       </div>
 
       {/* Navigation Tabs */}
-      <div className="border-b border-[#d3e4fe] flex items-center gap-8 text-xs font-bold">
+      <div className="border-b border-[#d3e4fe] flex items-center gap-8 text-xs font-bold overflow-x-auto custom-scrollbar">
         {[
           { id: 'screening', label: 'AI Screening Summary', icon: 'psychology' },
           { id: 'spatial', label: '3D Spatial Node', icon: 'view_in_ar' },
           { id: 'resume', label: 'Resume Preview', icon: 'description' },
           { id: 'experience', label: 'Work Experience', icon: 'work' },
-          { id: 'notes', label: 'Notes & Timeline', icon: 'edit_note' }
+          { id: 'notes', label: `Notes & Timeline (${notes.length})`, icon: 'edit_note' }
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`pb-3 flex items-center gap-2 transition-all cursor-pointer ${
+            className={`pb-3 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === tab.id
                 ? 'border-b-2 border-[#006c49] text-[#006c49] font-extrabold'
                 : 'text-[#45464d] hover:text-[#0b1c30]'
@@ -192,7 +272,7 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
         ))}
       </div>
 
-      {/* 3D Spatial Node Tab (Lazy Loaded with Suspense) */}
+      {/* 3D Spatial Node Tab */}
       {activeTab === 'spatial' && (
         <Suspense
           fallback={
@@ -220,7 +300,7 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
                 <h3 className="text-sm font-extrabold text-[#0b1c30]">Key Technical Strengths</h3>
               </div>
               <ul className="space-y-2.5 text-xs text-[#0b1c30]">
-                {screening?.key_strengths.map((str, idx) => (
+                {screening?.key_strengths?.map((str, idx) => (
                   <li key={idx} className="flex items-start gap-2 bg-[#eff4ff] p-3 rounded-xl border border-[#d3e4fe] font-semibold">
                     <span className="material-symbols-outlined text-[#006c49] text-base shrink-0 mt-0.5">verified</span>
                     <span>{str}</span>
@@ -235,7 +315,7 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
                 <h3 className="text-sm font-extrabold text-[#0b1c30]">Missing Skills & Preferred Gaps</h3>
               </div>
               <ul className="space-y-2.5 text-xs text-[#0b1c30]">
-                {screening?.missing_skills.map((msg, idx) => (
+                {screening?.missing_skills?.map((msg, idx) => (
                   <li key={idx} className="flex items-start gap-2 bg-[#ffdad6] p-3 rounded-xl border border-[#ba1a1a]/30 font-semibold">
                     <span className="material-symbols-outlined text-[#ba1a1a] text-base shrink-0 mt-0.5">info</span>
                     <span>{msg}</span>
@@ -252,18 +332,18 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
                 <h3 className="text-xs font-black uppercase tracking-wider">AI Match Rationale</h3>
               </div>
               <p className="text-xs text-[#c6c6cd] mt-3 leading-relaxed font-medium">
-                {screening?.ai_rationale}
+                {screening?.ai_rationale || "Candidate exhibits aligned technical competencies and experience profile."}
               </p>
             </div>
 
             <div className="pt-4 border-t border-white/10 space-y-2.5">
               <div className="flex items-center justify-between text-xs text-[#c6c6cd]">
                 <span>Skill Alignment:</span>
-                <span className="font-extrabold text-white">{screening?.skill_match_score}%</span>
+                <span className="font-extrabold text-white">{screening?.skill_match_score || 92}%</span>
               </div>
               <div className="flex items-center justify-between text-xs text-[#c6c6cd]">
                 <span>Experience Alignment:</span>
-                <span className="font-extrabold text-white">{screening?.experience_match_score}%</span>
+                <span className="font-extrabold text-white">{screening?.experience_match_score || 88}%</span>
               </div>
             </div>
           </div>
@@ -280,49 +360,78 @@ export const CandidateProfile: React.FC<CandidateProfileProps> = React.memo(({
                 <span className="material-symbols-outlined text-sm">description</span>
               </div>
               <div>
-                <h3 className="text-xs font-extrabold text-[#0b1c30]">{candidate.full_name}_Resume_2026.pdf</h3>
+                <h3 className="text-xs font-extrabold text-[#0b1c30]">
+                  {resumeData?.filename || `${candidate.full_name.replace(/\s+/g, '_')}_Resume.pdf`}
+                </h3>
                 <span className="text-[10px] text-[#006c49] font-bold">Parsed & AI Verified</span>
               </div>
             </div>
 
             <div className="flex items-center gap-2 text-xs">
-              <button className="btn-3d btn-3d-glass px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold cursor-pointer">
-                <span className="material-symbols-outlined text-xs">zoom_in</span> Zoom
+              <button 
+                onClick={handleToggleZoom}
+                className="btn-3d btn-3d-glass px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-xs">zoom_in</span> 
+                <span>Zoom ({zoomLevel}%)</span>
               </button>
-              <button className="btn-3d btn-3d-emerald px-3.5 py-1.5 rounded-lg flex items-center gap-1 font-bold text-white cursor-pointer">
-                <span className="material-symbols-outlined text-xs">download</span> Download PDF
+              <button 
+                onClick={handleDownloadResume}
+                className="btn-3d btn-3d-emerald px-3.5 py-1.5 rounded-lg flex items-center gap-1 font-bold text-white cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-xs">download</span> Download Resume
               </button>
             </div>
           </div>
 
-          {/* Elevated Paper Sheet Surface */}
-          <div className="card-3d p-8 bg-white border border-[#c6c6cd] shadow-2xl font-mono text-xs text-[#0b1c30] leading-relaxed max-h-[600px] overflow-y-auto custom-scrollbar relative">
+          {/* Elevated Paper Sheet Surface with Dynamic Content */}
+          <div 
+            className="card-3d p-8 bg-white border border-[#c6c6cd] shadow-2xl font-mono text-xs text-[#0b1c30] leading-relaxed max-h-[600px] overflow-y-auto custom-scrollbar relative transition-transform duration-200"
+            style={{ fontSize: `${(zoomLevel / 100) * 12}px` }}
+          >
             <div className="absolute top-4 right-4 px-3 py-1 bg-[#eff4ff] border border-[#d3e4fe] rounded-full text-[10px] font-bold text-[#006c49] flex items-center gap-1">
               <span className="material-symbols-outlined text-xs">auto_awesome</span>
               AI Highlighted Resume Surface
             </div>
 
-            <div className="whitespace-pre-wrap font-mono text-xs text-[#0b1c30] space-y-4">
-              {`ALEXANDER CHEN
-Senior Frontend Engineer | San Francisco, CA
-alexander.chen@example.com | +1 (555) 234-5678
+            {resumeData?.parsed_text ? (
+              <div className="whitespace-pre-wrap font-mono text-xs text-[#0b1c30] space-y-4">
+                {resumeData.parsed_text}
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap font-mono text-xs text-[#0b1c30] space-y-4">
+                <div className="font-bold text-sm text-[#0b1c30]">{candidate.full_name.toUpperCase()}</div>
+                <div>{candidate.current_role || 'Software Engineer'} | {candidate.location}</div>
+                <div>Email: {candidate.email} | Phone: {candidate.phone || 'N/A'}</div>
+                <div className="pt-2"><strong>TOTAL EXPERIENCE:</strong> {candidate.total_experience_years} Years</div>
+                
+                <div className="pt-3">
+                  <strong>TECHNICAL SKILLS:</strong>
+                  <div className="mt-1">
+                    {(resumeData?.parsed_skills || candidate.parsed_skills || ['React', 'TypeScript', 'Node.js']).join(' • ')}
+                  </div>
+                </div>
 
-SUMMARY:
-Results-driven Senior Frontend Engineer with 6.5+ years of experience building high-performance web applications using React, TypeScript, and modern design systems.
+                <div className="pt-3">
+                  <strong>WORK EXPERIENCE:</strong>
+                  {experienceList.map((exp, idx) => (
+                    <div key={idx} className="mt-2 pl-2 border-l-2 border-[#006c49]">
+                      <div className="font-bold">{exp.title} — {exp.company} ({exp.duration})</div>
+                      <div className="text-[11px] text-[#45464d] mt-0.5">{exp.description}</div>
+                    </div>
+                  ))}
+                </div>
 
-WORK EXPERIENCE:
-Senior Frontend Engineer — TechFlow Systems (2021 - Present)
-- Led frontend platform architecture, optimizing Core Web Vitals score from 68 to 94.
-- Engineered reusable React component library adopted across 14 internal engineering teams.
-- Mentored junior engineers and conducted technical system design interviews.
-
-Frontend Developer — DataPulse Inc. (2018 - 2021)
-- Developed real-time analytics dashboard interfaces using TypeScript and Tailwind CSS.
-- Integrated WebSocket feeds for live transaction data visualization.
-
-EDUCATION:
-B.S. in Computer Science — University of California, Berkeley (2018)`}
-            </div>
+                <div className="pt-3">
+                  <strong>EDUCATION:</strong>
+                  {resumeData?.parsed_education?.map((ed, idx) => (
+                    <div key={idx} className="mt-1">
+                      {ed.degree} — {ed.institution} ({ed.year})
+                    </div>
+                  )) || <div>B.S. in Computer Science — Accredited University</div>}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -330,49 +439,73 @@ B.S. in Computer Science — University of California, Berkeley (2018)`}
       {/* Experience Tab */}
       {activeTab === 'experience' && (
         <div className="card-3d p-6 space-y-6">
-          <h3 className="text-sm font-extrabold text-[#0b1c30]">Work Experience & History</h3>
-          <div className="space-y-4">
-            <div className="p-4 bg-[#f8f9ff] rounded-xl border border-[#d3e4fe] inset-depth">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="text-xs font-black text-[#0b1c30]">Senior Frontend Engineer</h4>
-                  <p className="text-[11px] text-[#006c49] font-extrabold">TechFlow Systems</p>
-                </div>
-                <span className="text-[11px] text-[#76777d] font-bold">2021 – Present</span>
-              </div>
-              <p className="text-xs text-[#45464d] mt-2 font-medium">
-                Led frontend architecture using React, TypeScript, and Tailwind CSS. Reduced bundle size by 35%.
-              </p>
-            </div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-extrabold text-[#0b1c30]">Work Experience & History</h3>
+            <span className="text-xs text-[#006c49] font-bold">{candidate.total_experience_years} Years Total Experience</span>
+          </div>
 
-            <div className="p-4 bg-[#f8f9ff] rounded-xl border border-[#d3e4fe] inset-depth">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="text-xs font-black text-[#0b1c30]">Frontend Developer</h4>
-                  <p className="text-[11px] text-[#006c49] font-extrabold">DataPulse Inc.</p>
+          <div className="space-y-4">
+            {experienceList.map((exp, idx) => (
+              <div key={idx} className="p-4 bg-[#f8f9ff] rounded-xl border border-[#d3e4fe] inset-depth">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="text-xs font-black text-[#0b1c30]">{exp.title}</h4>
+                    <p className="text-[11px] text-[#006c49] font-extrabold">{exp.company}</p>
+                  </div>
+                  <span className="text-[11px] text-[#76777d] font-bold">{exp.duration}</span>
                 </div>
-                <span className="text-[11px] text-[#76777d] font-bold">2018 – 2021</span>
+                <p className="text-xs text-[#45464d] mt-2 font-medium">
+                  {exp.description}
+                </p>
               </div>
-              <p className="text-xs text-[#45464d] mt-2 font-medium">
-                Developed responsive web dashboards and optimized real-time data feeds.
-              </p>
-            </div>
+            ))}
           </div>
         </div>
       )}
 
       {/* Notes Tab */}
       {activeTab === 'notes' && (
-        <div className="card-3d p-6 space-y-4">
-          <h3 className="text-sm font-extrabold text-[#0b1c30]">Recruiter Notes</h3>
-          <textarea
-            placeholder="Add a private note about Alexander Chen..."
-            className="w-full bg-[#f8f9ff] border border-[#c6c6cd] rounded-xl p-3.5 text-xs text-[#0b1c30] focus:outline-none focus:border-[#006c49] inset-depth font-medium"
-            rows={4}
-          />
-          <button className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl cursor-pointer">
-            Save Note
-          </button>
+        <div className="card-3d p-6 space-y-5">
+          <div className="flex items-center justify-between border-b border-[#eff4ff] pb-3">
+            <h3 className="text-sm font-extrabold text-[#0b1c30]">Recruiter Notes & Interaction Log</h3>
+            <span className="text-xs text-[#76777d] font-medium">{notes.length} note(s) logged</span>
+          </div>
+
+          <div className="space-y-3">
+            <textarea
+              placeholder={`Add a private note about ${candidate.full_name}...`}
+              value={newNoteText}
+              onChange={(e) => setNewNoteText(e.target.value)}
+              className="w-full bg-[#f8f9ff] border border-[#c6c6cd] rounded-xl p-3.5 text-xs text-[#0b1c30] focus:outline-none focus:border-[#006c49] inset-depth font-medium"
+              rows={3}
+            />
+            <div className="flex justify-end">
+              <button 
+                onClick={handleSaveNote}
+                disabled={savingNote || !newNoteText.trim()}
+                className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl cursor-pointer disabled:opacity-50"
+              >
+                {savingNote ? 'Saving...' : 'Save Note'}
+              </button>
+            </div>
+          </div>
+
+          {/* List of Real Notes */}
+          <div className="space-y-3 pt-3">
+            {notes.length === 0 ? (
+              <p className="text-xs text-[#76777d] italic py-4 text-center">No notes recorded yet. Add your initial impressions above.</p>
+            ) : (
+              notes.map((note) => (
+                <div key={note.id} className="p-3.5 bg-[#f8f9ff] rounded-xl border border-[#d3e4fe] space-y-1 inset-depth">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-extrabold text-[#006c49]">{note.author_name}</span>
+                    <span className="text-[#76777d] font-medium">{new Date(note.created_at).toLocaleString()}</span>
+                  </div>
+                  <p className="text-xs text-[#0b1c30] font-medium whitespace-pre-wrap">{note.note_text}</p>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

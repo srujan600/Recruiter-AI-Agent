@@ -4,6 +4,7 @@ import type { Application, PipelineStage, Job } from '../../types';
 import { PipelineSkeleton, ErrorRetryCard } from '../common/Skeletons';
 
 interface CandidatePipelineProps {
+  initialJobId?: number;
   onSelectCandidate: (candidateId: number) => void;
   onOpenMatcher: (candidateId: number, jobId: number) => void;
 }
@@ -18,7 +19,7 @@ const STAGES: PipelineStage[] = [
   'Hired'
 ];
 
-// Memoized Candidate Card to eliminate redundant renders across columns
+// Memoized Candidate Card with Drag & Drop capability
 interface CandidateCardProps {
   app: Application;
   onSelect: (candidateId: number) => void;
@@ -32,9 +33,16 @@ const CandidateCard: React.FC<CandidateCardProps> = React.memo(({
   onOpenMatcher,
   onStageChange
 }) => {
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', String(app.id));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
   return (
     <div
-      className="card-3d card-3d-hover p-4 space-y-3 cursor-pointer group transition-all"
+      draggable
+      onDragStart={handleDragStart}
+      className="card-3d card-3d-hover p-4 space-y-3 cursor-grab active:cursor-grabbing group transition-all"
       onClick={() => onSelect(app.candidate_id)}
     >
       {/* Match & ATS Badges */}
@@ -105,6 +113,7 @@ const CandidateCard: React.FC<CandidateCardProps> = React.memo(({
 CandidateCard.displayName = 'CandidateCard';
 
 export const CandidatePipeline: React.FC<CandidatePipelineProps> = React.memo(({
+  initialJobId,
   onSelectCandidate,
   onOpenMatcher
 }) => {
@@ -113,9 +122,17 @@ export const CandidatePipeline: React.FC<CandidatePipelineProps> = React.memo(({
 
   const [applications, setApplications] = useState<Application[]>(cachedApps || []);
   const [jobs, setJobs] = useState<Job[]>(cachedJobs || []);
-  const [selectedJobId, setSelectedJobId] = useState<number | undefined>(undefined);
+  const [selectedJobId, setSelectedJobId] = useState<number | undefined>(initialJobId);
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(!cachedApps);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync with initialJobId if passed from props
+  useEffect(() => {
+    if (initialJobId !== undefined) {
+      setSelectedJobId(initialJobId);
+    }
+  }, [initialJobId]);
 
   const loadData = useCallback((forceRefresh = false) => {
     if (!cachedApps || forceRefresh) setLoading(true);
@@ -146,17 +163,46 @@ export const CandidatePipeline: React.FC<CandidatePipelineProps> = React.memo(({
     );
 
     try {
-      // 2. Perform background update
+      // 2. Background update
       await updateCandidateStage(appId, newStage);
     } catch (err) {
       console.error('Failed to update pipeline stage:', err);
-      // Revert on failure
       setApplications(previousApplications);
       alert('Failed to update pipeline stage. Reverting change.');
     }
   }, [applications]);
 
-  // Memoize applications grouped by stage so we don't re-filter on every render
+  // Handle Drag Over
+  const handleDragOver = (e: React.DragEvent, stage: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverStage !== stage) {
+      setDragOverStage(stage);
+    }
+  };
+
+  // Handle Drag Leave
+  const handleDragLeave = (_e: React.DragEvent, stage: string) => {
+    if (dragOverStage === stage) {
+      setDragOverStage(null);
+    }
+  };
+
+  // Handle Drop on Column
+  const handleDrop = (e: React.DragEvent, stage: PipelineStage) => {
+    e.preventDefault();
+    setDragOverStage(null);
+    const appIdStr = e.dataTransfer.getData('text/plain');
+    if (appIdStr) {
+      const appId = Number(appIdStr);
+      const app = applications.find(a => a.id === appId);
+      if (app && app.stage !== stage) {
+        handleStageMove(appId, stage);
+      }
+    }
+  };
+
+  // Group applications by stage
   const stageGroups = useMemo(() => {
     const map = new Map<string, Application[]>();
     for (const stage of STAGES) {
@@ -188,7 +234,7 @@ export const CandidatePipeline: React.FC<CandidatePipelineProps> = React.memo(({
           </div>
           <div>
             <h1 className="text-xl font-black text-[#0b1c30] tracking-tight">Spatial Candidate Pipeline</h1>
-            <p className="text-xs text-[#45464d] mt-0.5">Manage candidates across 7 recruitment stages with AI match signals</p>
+            <p className="text-xs text-[#45464d] mt-0.5">Drag and drop candidates across stages or filter by target job</p>
           </div>
         </div>
 
@@ -216,19 +262,30 @@ export const CandidatePipeline: React.FC<CandidatePipelineProps> = React.memo(({
         </div>
       </div>
 
+      {/* Kanban Board with Drag and Drop Columns */}
       <div className="flex gap-4 overflow-x-auto pb-6 custom-scrollbar min-h-[680px] items-start">
         {STAGES.map((stage) => {
           const stageApps = stageGroups.get(stage) || [];
+          const isOver = dragOverStage === stage;
           return (
             <div
               key={stage}
-              className="w-80 shrink-0 card-3d p-4 bg-[#f4f7fc]/90 border border-[#d3e4fe] flex flex-col max-h-[760px] depth-l1"
+              onDragOver={(e) => handleDragOver(e, stage)}
+              onDragLeave={(e) => handleDragLeave(e, stage)}
+              onDrop={(e) => handleDrop(e, stage)}
+              className={`w-80 shrink-0 card-3d p-4 flex flex-col max-h-[760px] depth-l1 transition-all duration-200 ${
+                isOver
+                  ? 'bg-[#eff4ff] border-2 border-[#006c49] shadow-lg ring-2 ring-[#6cf8bb]'
+                  : 'bg-[#f4f7fc]/90 border border-[#d3e4fe]'
+              }`}
             >
               {/* Stage Header */}
               <div className="flex items-center justify-between pb-3 border-b border-[#d3e4fe] mb-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider">{stage}</h3>
-                  <span className="px-2.5 py-0.5 bg-[#131b2e] text-white text-[11px] font-black rounded-full shadow-xs">
+                  <span className={`px-2.5 py-0.5 text-[11px] font-black rounded-full shadow-xs ${
+                    isOver ? 'bg-[#006c49] text-white' : 'bg-[#131b2e] text-white'
+                  }`}>
                     {stageApps.length}
                   </span>
                 </div>
@@ -237,8 +294,12 @@ export const CandidatePipeline: React.FC<CandidatePipelineProps> = React.memo(({
               {/* Candidate Cards Column */}
               <div className="space-y-3.5 overflow-y-auto custom-scrollbar flex-1 pr-1">
                 {stageApps.length === 0 ? (
-                  <div className="p-8 text-center border-2 border-dashed border-[#c6c6cd] rounded-2xl text-xs text-[#76777d] bg-white/50">
-                    No candidates in {stage}
+                  <div className={`p-8 text-center border-2 border-dashed rounded-2xl text-xs font-medium transition-colors ${
+                    isOver 
+                      ? 'border-[#006c49] bg-white text-[#006c49] font-bold' 
+                      : 'border-[#c6c6cd] text-[#76777d] bg-white/50'
+                  }`}>
+                    {isOver ? 'Drop candidate here' : `No candidates in ${stage}`}
                   </div>
                 ) : (
                   stageApps.map((app) => (

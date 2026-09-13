@@ -1,4 +1,14 @@
-import type { Job, Candidate, Application, PipelineStage, ScreeningResult, Interview, Assessment, AnalyticsData } from '../types';
+import type { 
+  Job, 
+  Candidate, 
+  Application, 
+  PipelineStage, 
+  ScreeningResult, 
+  Interview, 
+  Assessment, 
+  AnalyticsData, 
+  CandidateNote 
+} from '../types';
 import { apiCache } from './cache';
 
 // Use relative API path to take advantage of Vite's proxy and eliminate CORS preflights when available
@@ -28,6 +38,19 @@ export async function createJob(jobData: Partial<Job>): Promise<Job> {
   apiCache.invalidate('jobs');
   apiCache.invalidate('analytics');
   return created;
+}
+
+export async function updateJobStatus(jobId: number, status: string): Promise<Job> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error('Failed to update job status');
+  const updated = await res.json();
+  apiCache.invalidate('jobs');
+  apiCache.invalidate('analytics');
+  return updated;
 }
 
 export async function fetchCandidates(q?: string, forceRefresh = false): Promise<Candidate[]> {
@@ -63,7 +86,29 @@ export async function uploadCandidateResume(file: File, jobId?: number) {
   apiCache.invalidate('candidates');
   apiCache.invalidate('pipeline');
   apiCache.invalidate('analytics');
+  apiCache.invalidate('jobs');
   return result;
+}
+
+export async function fetchCandidateNotes(candidateId: number, forceRefresh = false): Promise<CandidateNote[]> {
+  return apiCache.fetchWithCache(`notes_${candidateId}`, async () => {
+    const res = await fetch(`${API_BASE}/candidates/${candidateId}/notes`);
+    if (!res.ok) throw new Error('Failed to fetch candidate notes');
+    return res.json();
+  }, { forceRefresh, ttl: 30000 });
+}
+
+export async function createCandidateNote(candidateId: number, noteText: string, authorName = 'Sarah Jenkins'): Promise<CandidateNote> {
+  const res = await fetch(`${API_BASE}/candidates/${candidateId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note_text: noteText, author_name: authorName })
+  });
+  if (!res.ok) throw new Error('Failed to save candidate note');
+  const created = await res.json();
+  apiCache.invalidate(`notes_${candidateId}`);
+  apiCache.invalidate(`candidate_${candidateId}`);
+  return created;
 }
 
 export async function fetchPipeline(jobId?: number, forceRefresh = false): Promise<Application[]> {
@@ -142,6 +187,41 @@ export async function scheduleInterview(data: Partial<Interview>): Promise<Inter
   return created;
 }
 
+export async function updateInterviewStatus(interviewId: number, status: string, notes?: string): Promise<Interview> {
+  const res = await fetch(`${API_BASE}/interviews/${interviewId}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, notes })
+  });
+  if (!res.ok) throw new Error('Failed to update interview status');
+  const updated = await res.json();
+  apiCache.invalidate('interviews');
+  apiCache.invalidate('analytics');
+  return updated;
+}
+
+export async function cancelInterview(interviewId: number) {
+  const res = await fetch(`${API_BASE}/interviews/${interviewId}/cancel`, {
+    method: 'PATCH'
+  });
+  if (!res.ok) throw new Error('Failed to cancel interview');
+  const result = await res.json();
+  apiCache.invalidate('interviews');
+  apiCache.invalidate('analytics');
+  return result;
+}
+
+export async function completeInterview(interviewId: number) {
+  const res = await fetch(`${API_BASE}/interviews/${interviewId}/complete`, {
+    method: 'PATCH'
+  });
+  if (!res.ok) throw new Error('Failed to complete interview');
+  const result = await res.json();
+  apiCache.invalidate('interviews');
+  apiCache.invalidate('analytics');
+  return result;
+}
+
 export async function fetchAssessments(forceRefresh = false): Promise<Assessment[]> {
   return apiCache.fetchWithCache('assessments', async () => {
     const res = await fetch(`${API_BASE}/assessments`);
@@ -162,6 +242,30 @@ export async function assignAssessment(data: Partial<Assessment>): Promise<Asses
   apiCache.invalidate('pipeline');
   apiCache.invalidate('analytics');
   return created;
+}
+
+export async function updateAssessmentStatus(assessmentId: number, status: string, score?: number, summary?: string): Promise<Assessment> {
+  const res = await fetch(`${API_BASE}/assessments/${assessmentId}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, score, summary })
+  });
+  if (!res.ok) throw new Error('Failed to update assessment status');
+  const updated = await res.json();
+  apiCache.invalidate('assessments');
+  apiCache.invalidate('analytics');
+  return updated;
+}
+
+export async function completeAssessment(assessmentId: number): Promise<Assessment> {
+  const res = await fetch(`${API_BASE}/assessments/${assessmentId}/complete`, {
+    method: 'PATCH'
+  });
+  if (!res.ok) throw new Error('Failed to complete assessment');
+  const updated = await res.json();
+  apiCache.invalidate('assessments');
+  apiCache.invalidate('analytics');
+  return updated;
 }
 
 export async function fetchDashboardAnalytics(forceRefresh = false): Promise<AnalyticsData> {

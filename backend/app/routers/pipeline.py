@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from ..database import get_db
-from ..models import Application, Candidate, Job, ScreeningResult
+from ..models import Application, Candidate, Job, ScreeningResult, EventLog, Notification
 from ..schemas import ApplicationResponse, PipelineStageUpdate
 
 router = APIRouter(prefix="/api/v1/pipeline", tags=["Pipeline"])
@@ -47,9 +47,21 @@ def update_application_stage(
     if stage_in.stage not in valid_stages:
         raise HTTPException(status_code=400, detail=f"Invalid pipeline stage: {stage_in.stage}")
 
+    old_stage = app.stage
     app.stage = stage_in.stage
     db.commit()
     db.refresh(app)
+
+    # Record event log
+    cand_name = app.candidate.full_name if app.candidate else "Candidate"
+    job_name = app.job.title if app.job else "Requisition"
+    db.add(EventLog(
+        event_type="stage_changed",
+        entity_type="application",
+        entity_id=app.id,
+        description=f"{cand_name} moved from {old_stage} to {app.stage} for {job_name}."
+    ))
+    db.commit()
 
     return ApplicationResponse(
         id=app.id,

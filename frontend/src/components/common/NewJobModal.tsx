@@ -16,6 +16,7 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
     max_salary: 170000,
     notice_period_days: 30,
     required_skills: 'React, TypeScript, Tailwind CSS',
+    preferred_skills: 'GraphQL, Next.js, Vite, System Design',
     description: ''
   });
   const [submitting, setSubmitting] = useState(false);
@@ -28,8 +29,8 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
     try {
       await createJob({
         ...formData,
-        required_skills: formData.required_skills.split(',').map((s) => s.trim()),
-        preferred_skills: ['GraphQL', 'Next.js', 'Vite']
+        required_skills: formData.required_skills.split(',').map((s) => s.trim()).filter(Boolean),
+        preferred_skills: formData.preferred_skills.split(',').map((s) => s.trim()).filter(Boolean)
       });
       setSubmitting(false);
       onSuccess();
@@ -41,11 +42,11 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 animate-in fade-in duration-200">
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" onClick={onClose} />
 
-      {/* Floating Spatial Modal Layer (Level 4 Depth) */}
+      {/* Floating Spatial Modal Layer */}
       <div className="relative bg-white/95 backdrop-blur-xl border border-[#d3e4fe] rounded-3xl p-6 max-w-lg w-full shadow-2xl z-10 space-y-4 depth-l4">
         <div className="flex items-center justify-between pb-3 border-b border-[#eff4ff]">
           <div className="flex items-center gap-2.5">
@@ -54,7 +55,7 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
             </div>
             <h2 className="text-base font-black text-[#0b1c30]">Create Job Requisition</h2>
           </div>
-          <button onClick={onClose} className="text-[#76777d] hover:text-[#0b1c30] p-1">
+          <button onClick={onClose} className="text-[#76777d] hover:text-[#0b1c30] p-1 cursor-pointer">
             <span className="material-symbols-outlined text-xl">close</span>
           </button>
         </div>
@@ -97,7 +98,7 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block font-extrabold text-[#0b1c30] mb-1">Min Salary ($)</label>
+              <label className="block font-extrabold text-[#0b1c30] mb-1">Min Salary Band ($)</label>
               <input
                 type="number"
                 value={formData.min_salary}
@@ -106,7 +107,7 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
               />
             </div>
             <div>
-              <label className="block font-extrabold text-[#0b1c30] mb-1">Max Salary ($)</label>
+              <label className="block font-extrabold text-[#0b1c30] mb-1">Max Salary Band ($)</label>
               <input
                 type="number"
                 value={formData.max_salary}
@@ -121,9 +122,32 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
             <input
               type="text"
               required
+              placeholder="e.g. React, TypeScript, Tailwind CSS"
               value={formData.required_skills}
               onChange={(e) => setFormData({ ...formData, required_skills: e.target.value })}
-              className="w-full bg-[#f4f4fc] border border-[#c6c6cd] rounded-xl p-2.5 text-xs text-[#0b1c30] inset-depth font-medium"
+              className="w-full bg-[#f4f7fc] border border-[#c6c6cd] rounded-xl p-2.5 text-xs text-[#0b1c30] inset-depth font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="block font-extrabold text-[#0b1c30] mb-1">Preferred Skills (Comma-separated)</label>
+            <input
+              type="text"
+              placeholder="e.g. GraphQL, Next.js, Vite, WebSockets"
+              value={formData.preferred_skills}
+              onChange={(e) => setFormData({ ...formData, preferred_skills: e.target.value })}
+              className="w-full bg-[#f4f7fc] border border-[#c6c6cd] rounded-xl p-2.5 text-xs text-[#0b1c30] inset-depth font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="block font-extrabold text-[#0b1c30] mb-1">Description (Optional)</label>
+            <textarea
+              rows={2}
+              placeholder="Brief summary of job role requirements..."
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full bg-[#f4f7fc] border border-[#c6c6cd] rounded-xl p-2.5 text-xs text-[#0b1c30] inset-depth font-medium"
             />
           </div>
 
@@ -131,14 +155,14 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onSuc
             <button
               type="button"
               onClick={onClose}
-              className="btn-3d btn-3d-glass px-4 py-2 text-xs font-bold rounded-xl"
+              className="btn-3d btn-3d-glass px-4 py-2 text-xs font-bold rounded-xl cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl"
+              className="btn-3d btn-3d-emerald px-4 py-2 text-xs font-extrabold rounded-xl cursor-pointer disabled:opacity-50"
             >
               {submitting ? 'Creating Job...' : 'Create Job'}
             </button>

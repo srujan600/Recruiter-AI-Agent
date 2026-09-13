@@ -70,6 +70,12 @@ class Candidate(Base):
     applications = relationship("Application", back_populates="candidate", cascade="all, delete-orphan")
     notes = relationship("CandidateNote", back_populates="candidate", cascade="all, delete-orphan")
 
+    @property
+    def parsed_skills(self):
+        if self.resumes and len(self.resumes) > 0 and self.resumes[0].parsed_skills:
+            return self.resumes[0].parsed_skills
+        return ["React", "TypeScript", "Tailwind CSS", "Node.js"]
+
 class Resume(Base):
     __tablename__ = 'resumes'
 
@@ -103,6 +109,10 @@ class Application(Base):
     screening_result = relationship("ScreeningResult", back_populates="application", uselist=False, cascade="all, delete-orphan")
     assessments = relationship("Assessment", back_populates="application", cascade="all, delete-orphan")
     interviews = relationship("Interview", back_populates="application", cascade="all, delete-orphan")
+
+    @property
+    def job_title(self):
+        return self.job.title if self.job else "Target Role"
 
 class ScreeningResult(Base):
     __tablename__ = 'screening_results'
@@ -138,6 +148,22 @@ class Assessment(Base):
 
     application = relationship("Application", back_populates="assessments")
 
+    @property
+    def candidate_name(self):
+        return self.application.candidate.full_name if self.application and self.application.candidate else "Candidate"
+
+    @property
+    def candidate_avatar(self):
+        return self.application.candidate.avatar_url if self.application and self.application.candidate else None
+
+    @property
+    def job_id(self):
+        return self.application.job_id if self.application else None
+
+    @property
+    def job_title(self):
+        return self.application.job.title if self.application and self.application.job else "General Requisition"
+
 class Interview(Base):
     __tablename__ = 'interviews'
 
@@ -154,6 +180,22 @@ class Interview(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     application = relationship("Application", back_populates="interviews")
+
+    @property
+    def candidate_name(self):
+        return self.application.candidate.full_name if self.application and self.application.candidate else "Candidate"
+
+    @property
+    def candidate_avatar(self):
+        return self.application.candidate.avatar_url if self.application and self.application.candidate else None
+
+    @property
+    def job_id(self):
+        return self.application.job_id if self.application else None
+
+    @property
+    def job_title(self):
+        return self.application.job.title if self.application and self.application.job else "General Requisition"
 
 class CandidateNote(Base):
     __tablename__ = 'candidate_notes'

@@ -69,9 +69,13 @@ export const AICandidateMatcher: React.FC<AICandidateMatcherProps> = React.memo(
   }, [selectedCandidateId, selectedJobId, runComparison]);
 
   const handleShortlist = async () => {
-    if (!matchData?.candidate) return;
+    const appId = matchData?.application_id || (matchData?.candidate?.applications?.[0]?.id);
+    if (!appId) {
+      alert('Unable to resolve active application ID.');
+      return;
+    }
     try {
-      await updateCandidateStage(matchData.candidate.id, 'Shortlisted');
+      await updateCandidateStage(appId, 'Shortlisted');
       onNavigate('pipeline');
     } catch (e) {
       console.error(e);

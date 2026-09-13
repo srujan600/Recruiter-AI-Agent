@@ -3,9 +3,17 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
 import shutil
+import uuid
+import re
 from ..database import get_db
-from ..models import Candidate, Resume, Application, Job, ScreeningResult
-from ..schemas import CandidateResponse, CandidateCreate, ApplicationResponse
+from ..models import Candidate, Resume, Application, Job, ScreeningResult, CandidateNote, EventLog
+from ..schemas import (
+    CandidateResponse,
+    CandidateCreate,
+    ApplicationResponse,
+    CandidateNoteResponse,
+    CandidateNoteCreate
+)
 from ..services.resume_parser import extract_text_from_file, parse_resume_content
 from ..services.ai_screener import perform_ai_screening
 
@@ -85,6 +93,15 @@ def create_candidate(cand_in: CandidateCreate, db: Session = Depends(get_db)):
         db.add(sr)
         db.commit()
 
+    # Log event
+    db.add(EventLog(
+        event_type="candidate_created",
+        entity_type="candidate",
+        entity_id=new_cand.id,
+        description=f"Candidate {new_cand.full_name} profile created."
+    ))
+    db.commit()
+
     return new_cand
 
 @router.post("/upload_resume")
@@ -93,10 +110,14 @@ def upload_resume(
     job_id: Optional[int] = Form(None),
     db: Session = Depends(get_db)
 ):
-    if not file.filename.endswith(('.pdf', '.docx', '.doc', '.txt')):
-        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload PDF or DOCX resume.")
+    if not file.filename.lower().endswith(('.pdf', '.docx', '.doc', '.txt')):
+        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload PDF, DOCX, or TXT resume.")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    # Sanitize uploaded filename using UUID to prevent overwrite and traversal
+    clean_filename = re.sub(r"[^a-zA-Z0-9_\.-]", "_", file.filename)
+    unique_filename = f"{uuid.uuid4()}_{clean_filename}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
@@ -104,17 +125,25 @@ def upload_resume(
     parsed_text = extract_text_from_file(file_path, file_ext)
     parsed_data = parse_resume_content(parsed_text)
 
-    cand_name = os.path.splitext(file.filename)[0].replace('_', ' ').replace('-', ' ').title()
-    
+    # Real name extracted from parsed resume (never from filename!)
+    cand_name = parsed_data.get("full_name") or "Candidate (Pending Review)"
+    if cand_name in ["Resume", "Curriculum Vitae", "Cv"]:
+        cand_name = "Candidate (Pending Review)"
+
+    # Fallback to unique email placeholder if none found
+    email = parsed_data.get("email")
+    if not email or "@" not in email:
+        email = f"unspecified_{uuid.uuid4().hex[:8]}@recruiter.internal"
+
     # Check if candidate already exists by email
-    cand = db.query(Candidate).filter(Candidate.email == parsed_data["email"]).first()
+    cand = db.query(Candidate).filter(Candidate.email == email).first()
     if not cand:
         cand = Candidate(
             full_name=cand_name,
-            email=parsed_data["email"],
-            phone=parsed_data["phone"],
-            total_experience_years=parsed_data["total_experience_years"],
-            location="San Francisco, CA",
+            email=email,
+            phone=parsed_data.get("phone") or "",
+            total_experience_years=float(parsed_data.get("total_experience_years") or 5.0),
+            location=parsed_data.get("location") or "San Francisco, CA",
             avatar_url="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150"
         )
         db.add(cand)
@@ -127,30 +156,36 @@ def upload_resume(
         file_path=file_path,
         file_type=file_ext,
         parsed_text=parsed_text,
-        parsed_skills=parsed_data["skills"],
-        parsed_experience=parsed_data["parsed_experience"],
-        parsed_education=parsed_data["parsed_education"]
+        parsed_skills=parsed_data.get("skills", []),
+        parsed_experience=parsed_data.get("parsed_experience", []),
+        parsed_education=parsed_data.get("parsed_education", [])
     )
     db.add(new_resume)
     db.commit()
 
-    # Link application
-    target_job = db.query(Job).filter(Job.id == job_id).first() if job_id else db.query(Job).first()
+    # Link application to target job
+    target_job = None
+    if job_id:
+        target_job = db.query(Job).filter(Job.id == job_id).first()
+    if not target_job:
+        target_job = db.query(Job).filter(Job.status == "active").first() or db.query(Job).first()
+
     if target_job:
         app = db.query(Application).filter(Application.candidate_id == cand.id, Application.job_id == target_job.id).first()
         if not app:
             screening = perform_ai_screening(
                 candidate_data={
                     "full_name": cand.full_name,
-                    "skills": parsed_data["skills"],
-                    "total_experience_years": parsed_data["total_experience_years"],
+                    "skills": parsed_data.get("skills", []),
+                    "total_experience_years": parsed_data.get("total_experience_years", 5.0),
                     "notice_period_days": cand.notice_period_days
                 },
                 job_data={
                     "title": target_job.title,
                     "required_skills": target_job.required_skills,
                     "preferred_skills": target_job.preferred_skills,
-                    "notice_period_days": target_job.notice_period_days
+                    "notice_period_days": target_job.notice_period_days,
+                    "experience_level": target_job.experience_level
                 }
             )
             app = Application(
@@ -179,9 +214,45 @@ def upload_resume(
             db.add(sr)
             db.commit()
 
+    # Write EventLog
+    db.add(EventLog(
+        event_type="resume_uploaded",
+        entity_type="candidate",
+        entity_id=cand.id,
+        description=f"Uploaded and parsed resume for {cand.full_name} ({target_job.title if target_job else 'Target Requisition'})."
+    ))
+    db.commit()
+
     return {
         "message": "Resume uploaded and parsed successfully",
         "candidate_id": cand.id,
         "candidate_name": cand.full_name,
-        "extracted_skills": parsed_data["skills"]
+        "extracted_skills": parsed_data.get("skills", []),
+        "target_job_id": target_job.id if target_job else None
     }
+
+# ==============================
+# Candidate Notes Endpoints
+# ==============================
+@router.get("/{candidate_id}/notes", response_model=List[CandidateNoteResponse])
+def get_candidate_notes(candidate_id: int, db: Session = Depends(get_db)):
+    cand = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not cand:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return db.query(CandidateNote).filter(CandidateNote.candidate_id == candidate_id).order_by(CandidateNote.created_at.desc()).all()
+
+@router.post("/{candidate_id}/notes", response_model=CandidateNoteResponse, status_code=status.HTTP_201_CREATED)
+def add_candidate_note(candidate_id: int, note_in: CandidateNoteCreate, db: Session = Depends(get_db)):
+    cand = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not cand:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    new_note = CandidateNote(
+        candidate_id=candidate_id,
+        author_name=note_in.author_name or "Sarah Jenkins",
+        note_text=note_in.note_text
+    )
+    db.add(new_note)
+    db.commit()
+    db.refresh(new_note)
+    return new_note
